@@ -1,0 +1,121 @@
+#!/usr/bin/env python
+from argparse import ArgumentParser
+import logging
+import os.path
+
+import numpy as np
+import sklearn.linear_model
+import scipy.io
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+
+def learn_decoder(images, encodings):
+  """
+  Learn a decoder mapping from sentence encodings to subject brain images.
+  """
+  ridge = sklearn.linear_model.RidgeCV(
+      alphas=[1, 10, .01, 100, .001, 1000, .0001, 10000, .00001, 100000, .000001, 1000000],
+      fit_intercept=False
+  )
+  ridge.fit(images, encodings)
+  logger.debug("Best alpha: %f", ridge.alpha_)
+  return ridge
+
+
+def iter_folds(subject_data, encodings, n_folds=18):
+  """
+  Yield CV folds of a dataset.
+  """
+  N = len(subject_data)
+  assert N == len(encodings)
+
+  fold_size = N // n_folds
+  for fold_i in range(n_folds):
+    # NB doesn't handle oddly sized final folds
+    idxs = np.arange(fold_i * fold_size, (fold_i + 1) * fold_size)
+    mask = np.zeros(N, dtype=np.bool)
+    mask[idxs] = True
+
+    train_imaging = subject_data[~mask]
+    train_semantic = encodings[~mask]
+
+    test_imaging = subject_data[mask]
+    test_semantic = encodings[mask]
+    target_semantic_idxs = idxs
+
+    yield (train_imaging, train_semantic), (test_imaging, test_semantic, target_semantic_idxs)
+
+
+def eval_ranks(clf, test_imaging, target_semantic_idxs, encodings):
+  """
+  Evaluate a trained classifier, predicting the concepts associated with test imaging data.
+
+  Returns:
+    rankings: N_test * N_concepts integer matrix. Each row is a list of concept IDs
+      ranked using the model.
+    rank_of_correct: N_test vector indicating the rank of the target concept for each
+      test input.
+  """
+  N_test = len(test_imaging)
+  assert N_test == len(target_semantic_idxs)
+
+  # yields an N_test * D_sem matrix
+  pred_semantic = clf.predict(test_imaging)
+
+  # calculate pairwise similarities with semantic data
+  # yields an N_test * C matrix
+  pred_semantic /= np.linalg.norm(pred_semantic, axis=1, keepdims=True)
+  encodings_normed = encodings / np.linalg.norm(encodings, axis=1, keepdims=True)
+  similarities = np.dot(pred_semantic, encodings_normed.T)
+
+  # Rank similarities row-wise in descending order
+  rankings = np.argsort(-similarities, axis=1)
+  # Find the rank of the desired concept vector
+  matches = np.equal(rankings, target_semantic_idxs[:, np.newaxis])
+  rank_of_correct = np.argmax(matches, axis=1)
+  return rankings, rank_of_correct
+
+
+def main(args):
+  with open(args.sentences_path, "r") as sentences_f:
+    sentences = [line.strip() for line in sentences_f]
+
+  encodings = np.load(args.encoding_path)
+  logger.info("Loaded encodings of size %s.", encodings.shape)
+
+  assert len(encodings) == len(sentences)
+
+  for subject in args.subject:
+    # Load subject data.
+    subject_data = scipy.io.loadmat(os.path.join(subject, args.mat_name))
+    logger.info("Loaded subject %s data.", subject)
+
+    subject_images = subject_data["examples"]
+    assert len(subject_images) == len(sentences)
+
+    for i, fold in enumerate(iter_folds(subject_images, encodings)):
+      (train_imaging, train_semantic), (test_imaging, test_semantic, target_semantic_idxs) = fold
+      clf = learn_decoder(train_imaging, train_semantic)
+
+      rankings, rank_of_correct = eval_ranks(clf, test_imaging, target_semantic_idxs, encodings)
+      print("Fold % 2i: min % 3.1f\tmean % 3.1f\tmed % 3.1f\tmax % 3.1f" %
+            (i, rank_of_correct.min(), rank_of_correct.mean(),
+            np.median(rank_of_correct), rank_of_correct.max()))
+
+      # all_ranks.append(rank_of_correct)
+      # for target_idx, target_rankings, target_rank_of_correct in zip(target_semantic_idxs, rankings, rank_of_correct):
+      #   concept_rankings[target_idx] = target_rankings
+      #   concept_rank_of_correct[target_idx] = target_rank_of_correct
+
+
+if __name__ == '__main__':
+  p = ArgumentParser()
+
+  p.add_argument("sentences_path")
+  p.add_argument("encoding_path")
+  p.add_argument("--mat_name", default="examples_384sentences.mat")
+  p.add_argument("--subject", action="append")
+
+  main(p.parse_args())
