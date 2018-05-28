@@ -4,7 +4,8 @@ import logging
 import os.path
 
 import numpy as np
-import sklearn.linear_model
+from sklearn.decomposition import PCA
+from sklearn.linear_model import RidgeCV
 import scipy.io
 
 logging.basicConfig(level=logging.DEBUG)
@@ -15,7 +16,7 @@ def learn_decoder(images, encodings):
   """
   Learn a decoder mapping from sentence encodings to subject brain images.
   """
-  ridge = sklearn.linear_model.RidgeCV(
+  ridge = RidgeCV(
       alphas=[1, 10, .01, 100, .001, 1000, .0001, 10000, .00001, 100000, .000001, 1000000],
       fit_intercept=False
   )
@@ -85,6 +86,12 @@ def main(args):
   encodings = np.load(args.encoding_path)
   logger.info("Loaded encodings of size %s.", encodings.shape)
 
+  if args.encoding_project is not None:
+    logger.info("Projecting encodings to dimension %i with PCA", args.encoding_project)
+    pca = PCA(args.encoding_project).fit(encodings)
+    logger.info("PCA explained variance: %f", sum(pca.explained_variance_ratio_) * 100)
+    encodings = pca.transform(encodings)
+
   assert len(encodings) == len(sentences)
 
   for subject in args.subject:
@@ -115,6 +122,7 @@ if __name__ == '__main__':
 
   p.add_argument("sentences_path")
   p.add_argument("encoding_path")
+  p.add_argument("--encoding_project", type=int)
   p.add_argument("--mat_name", default="examples_384sentences.mat")
   p.add_argument("--subject", action="append")
 
