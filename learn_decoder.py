@@ -7,8 +7,9 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.linear_model import RidgeCV
 import scipy.io
+from tqdm import tqdm
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -17,7 +18,7 @@ def learn_decoder(images, encodings):
   Learn a decoder mapping from sentence encodings to subject brain images.
   """
   ridge = RidgeCV(
-      alphas=[1, 10, .01, 100, .001, 1000, .0001, 10000, .00001, 100000, .000001, 1000000],
+      alphas=[1e7],#[1, 10, .01, 100, .001, 1000, .0001, 10000, .00001, 100000, .000001, 1000000, 10000000],
       fit_intercept=False
   )
   ridge.fit(images, encodings)
@@ -80,6 +81,8 @@ def eval_ranks(clf, test_imaging, target_semantic_idxs, encodings):
 
 
 def main(args):
+  print(args)
+
   with open(args.sentences_path, "r") as sentences_f:
     sentences = [line.strip() for line in sentences_f]
 
@@ -102,14 +105,15 @@ def main(args):
     subject_images = subject_data["examples"]
     assert len(subject_images) == len(sentences)
 
-    for i, fold in enumerate(iter_folds(subject_images, encodings)):
+    folds = iter_folds(subject_images, encodings, n_folds=args.n_folds)
+    for i, fold in enumerate(tqdm(folds, total=args.n_folds, desc=subject)):
       (train_imaging, train_semantic), (test_imaging, test_semantic, target_semantic_idxs) = fold
       clf = learn_decoder(train_imaging, train_semantic)
 
       rankings, rank_of_correct = eval_ranks(clf, test_imaging, target_semantic_idxs, encodings)
-      print("Fold % 2i: min % 3.1f\tmean % 3.1f\tmed % 3.1f\tmax % 3.1f" %
-            (i, rank_of_correct.min(), rank_of_correct.mean(),
-            np.median(rank_of_correct), rank_of_correct.max()))
+      tqdm.write("Fold % 2i: min % 3.1f\tmean % 3.1f\tmed % 3.1f\tmax % 3.1f" %
+                 (i, rank_of_correct.min(), rank_of_correct.mean(),
+                  np.median(rank_of_correct), rank_of_correct.max()))
 
       # all_ranks.append(rank_of_correct)
       # for target_idx, target_rankings, target_rank_of_correct in zip(target_semantic_idxs, rankings, rank_of_correct):
@@ -123,6 +127,7 @@ if __name__ == '__main__':
   p.add_argument("sentences_path")
   p.add_argument("encoding_path")
   p.add_argument("--encoding_project", type=int)
+  p.add_argument("--n_folds", type=int, default=18)
   p.add_argument("--mat_name", default="examples_384sentences.mat")
   p.add_argument("--subject", action="append")
 
