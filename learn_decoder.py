@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 from argparse import ArgumentParser
+import itertools
 import logging
-import os.path
+from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.linear_model import RidgeCV
 import scipy.io
@@ -80,6 +82,33 @@ def eval_ranks(clf, test_imaging, target_semantic_idxs, encodings):
   return rankings, rank_of_correct
 
 
+def run_fold(fold, encodings, permute_targets=False):
+  """
+  Train and evaluate a classifier on the given CV setup.
+
+  Args:
+    fold:
+    encodings: N_concepts * encoding_dim matrix
+    permute_targets: If `True`, permute the target semantic idxs in order to
+      evaluate baseline performance.
+
+  Returns:
+    rankings: N_test * N_concepts integer matrix. Each row is a list of concept
+      IDs ranked using the model.
+    rank_of_correct: N_test vector indicating the rank of the target concept
+      for each test input.
+  """
+  (train_imaging, train_semantic), (test_imaging, test_semantic, target_semantic_idxs) = fold
+  clf = learn_decoder(train_imaging, train_semantic)
+
+  if permute_targets:
+    target_semantic_idxs = target_semantic_idxs.copy()
+    np.random.shuffle(target_semantic_idxs)
+
+  rankings, rank_of_correct = eval_ranks(clf, test_imaging, target_semantic_idxs, encodings)
+  return rankings, rank_of_correct
+
+
 def main(args):
   print(args)
 
@@ -97,28 +126,46 @@ def main(args):
 
   assert len(encodings) == len(sentences)
 
-  for subject in args.subject:
+  ######### Prepare to process subjects.
+  subject_paths = [item for item in Path(args.subject_dir).glob("*") if item.is_dir()]
+
+  # Track within-subject performance on test folds and permuted test folds.
+  index_vals = itertools.product(["ridge", "ridge_permute"], [p.name for p in subject_paths])
+  mar_metrics = pd.DataFrame(columns=['mar_fold_%i' % i for i in range(args.n_folds)],
+                             index=pd.MultiIndex.from_tuples(index_vals, names=("type", "subject")))
+
+  for path in subject_paths:
     # Load subject data.
-    subject_data = scipy.io.loadmat(os.path.join(subject, args.mat_name))
+    subject = path.name
+    subject_data = scipy.io.loadmat(str(path / args.mat_name))
     logger.info("Loaded subject %s data.", subject)
 
     subject_images = subject_data["examples"]
     assert len(subject_images) == len(sentences)
 
+    # Track within-subject performance on test fold and permuted test fold.
+    # TODO: More aggressive random baseline would just select random idxs?
+    perf_test, perf_permute = [], []
+
     folds = iter_folds(subject_images, encodings, n_folds=args.n_folds)
     for i, fold in enumerate(tqdm(folds, total=args.n_folds, desc=subject)):
-      (train_imaging, train_semantic), (test_imaging, test_semantic, target_semantic_idxs) = fold
-      clf = learn_decoder(train_imaging, train_semantic)
-
-      rankings, rank_of_correct = eval_ranks(clf, test_imaging, target_semantic_idxs, encodings)
-      tqdm.write("Fold % 2i: min % 3.1f\tmean % 3.1f\tmed % 3.1f\tmax % 3.1f" %
+      _, rank_of_correct = run_fold(fold, encodings)
+      perf_test.append(rank_of_correct.mean())
+      tqdm.write("Fold %2i:\t\tmin %3.1f\tmean %3.1f\tmed %3.1f\tmax %3.1f" %
                  (i, rank_of_correct.min(), rank_of_correct.mean(),
                   np.median(rank_of_correct), rank_of_correct.max()))
 
-      # all_ranks.append(rank_of_correct)
-      # for target_idx, target_rankings, target_rank_of_correct in zip(target_semantic_idxs, rankings, rank_of_correct):
-      #   concept_rankings[target_idx] = target_rankings
-      #   concept_rank_of_correct[target_idx] = target_rank_of_correct
+      _, rank_of_correct_permute = run_fold(fold, encodings, permute_targets=True)
+      perf_permute.append(rank_of_correct_permute.mean())
+      tqdm.write("Fold permuted %2i:\tmin %3.1f\tmean %3.1f\tmed %3.1f\tmax %3.1f" %
+                 (i, rank_of_correct_permute.min(), rank_of_correct_permute.mean(),
+                  np.median(rank_of_correct_permute), rank_of_correct_permute.max()))
+
+    mar_metrics.loc["ridge", subject] = perf_test
+    mar_metrics.loc["ridge_permute", subject] = perf_test
+
+  print(mar_metrics)
+  mar_metrics.to_csv(args.out_path)
 
 
 if __name__ == '__main__':
@@ -126,9 +173,10 @@ if __name__ == '__main__':
 
   p.add_argument("sentences_path")
   p.add_argument("encoding_path")
+  p.add_argument("subject_dir")
   p.add_argument("--encoding_project", type=int)
   p.add_argument("--n_folds", type=int, default=18)
   p.add_argument("--mat_name", default="examples_384sentences.mat")
-  p.add_argument("--subject", action="append")
+  p.add_argument("--out_path", default="decoder_perf.csv")
 
   main(p.parse_args())
