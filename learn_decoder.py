@@ -134,7 +134,7 @@ def main(args):
   mar_metrics = pd.DataFrame(columns=['mar_fold_%i' % i for i in range(args.n_folds)],
                              index=pd.MultiIndex.from_tuples(index_vals, names=("type", "subject")))
 
-  for path in subject_paths:
+  for path in tqdm(subject_paths, desc="subjects"):
     # Load subject data.
     subject = path.name
     subject_data = scipy.io.loadmat(str(path / args.mat_name))
@@ -148,7 +148,7 @@ def main(args):
     perf_test, perf_permute = [], []
 
     folds = iter_folds(subject_images, encodings, n_folds=args.n_folds)
-    for i, fold in enumerate(tqdm(folds, total=args.n_folds, desc=subject)):
+    for i, fold in enumerate(tqdm(folds, total=args.n_folds, desc="%s folds" % subject)):
       _, rank_of_correct = run_fold(fold, encodings)
       perf_test.append(rank_of_correct.mean())
       tqdm.write("Fold %2i:\t\tmin %3.1f\tmean %3.1f\tmed %3.1f\tmax %3.1f" %
