@@ -20,7 +20,7 @@ def learn_decoder(images, encodings):
   Learn a decoder mapping from sentence encodings to subject brain images.
   """
   ridge = RidgeCV(
-      alphas=[1e7],#[1, 10, .01, 100, .001, 1000, .0001, 10000, .00001, 100000, .000001, 1000000, 10000000],
+      alphas=[1, 10, .01, 100, .001, 1000, .0001, 10000, .00001, 100000, .000001, 1000000, 10000000],
       fit_intercept=False
   )
   ridge.fit(images, encodings)
