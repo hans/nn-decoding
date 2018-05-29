@@ -162,7 +162,7 @@ def main(args):
                   np.median(rank_of_correct_permute), rank_of_correct_permute.max()))
 
     mar_metrics.loc["ridge", subject] = perf_test
-    mar_metrics.loc["ridge_permute", subject] = perf_test
+    mar_metrics.loc["ridge_permute", subject] = perf_permute
 
   print(mar_metrics)
   mar_metrics.to_csv(args.out_path)
