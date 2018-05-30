@@ -3,6 +3,8 @@ pushd data || exit
 
 wget https://www.dropbox.com/s/jtqnvzg3jz6dctq/stimuli_384sentences.txt?dl=1
 wget https://www.dropbox.com/s/r9gi8p48jva3b4w/stimuli_384sentences_dereferencedpronouns.txt?dl=1
+wget https://www.dropbox.com/s/10jhiaievf07b93/vectors_384sentences.GV42B300.average.txt?dl=1
+wget https://www.dropbox.com/s/10jhiaievf07b93/vectors_384sentences_dereferencedpronouns.GV42B300.average.txt?dl=1
 
 wget https://www.dropbox.com/s/bdll04a2h4ou4xj/P01.tar?dl=1
 wget https://www.dropbox.com/s/wetd2gqljfbh8cg/M02.tar?dl=1
