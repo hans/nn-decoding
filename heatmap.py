@@ -56,17 +56,25 @@ def main(args):
       val = eval_encodings_pairwise(encodings[enc1], encodings[enc2])
     heatmap_mat[encoding_index[enc1], encoding_index[enc2]] = val
 
-  df = pd.DataFrame(heatmap_mat, index=args.encodings, columns=args.encodings)
+  if args.names is not None:
+    names = args.names.strip().split(",")
+    assert len(names) == len(args.encodings)
+  else:
+    names = list(map(str, range(1, len(args.encodings) + 1)))
+  df = pd.DataFrame(heatmap_mat, index=names, columns=names)
   df.mean(axis=1).to_csv("averages.csv")
   df.to_csv("heatmap.csv")
-  fig = plt.figure(figsize=(10, 8))
+  fig = plt.figure(figsize=(6, 5))
   sns.heatmap(data=df, annot=True)
+  plt.xticks(weight="bold")
+  plt.yticks(rotation=0, weight="bold")
   plt.tight_layout()
-  fig.savefig("heatmap.png")
+  fig.savefig("heatmap.svg")
 
 
 if __name__ == '__main__':
   p = ArgumentParser()
   p.add_argument("encodings", nargs="+")
   p.add_argument("--encoding_project", type=int)
+  p.add_argument("--names")
   main(p.parse_args())
