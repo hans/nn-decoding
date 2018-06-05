@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+"""
+Learn a decoder mapping from functional imaging data to target model
+representations.
+"""
 from argparse import ArgumentParser
 import itertools
 import logging
