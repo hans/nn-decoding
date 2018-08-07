@@ -1,4 +1,5 @@
 This repository contains analysis code for the paper:
+
 *Does the brain represent words? An evaluation of brain decoding studies of
 language understanding.* {Jon Gauthier and Anna Ivanova}. [2018 Conference on
 Cognitive Computational Neuroscience][2].
@@ -11,12 +12,12 @@ to encode novel stimuli.
 This repository is open-source under the MIT License. If you would like to
 reuse our code or otherwise extend our work, please cite our paper:
 
-   @inproceedings{gauthier2018does,
-     title={Does the brain represent words? An evaluation of brain decoding studies of language understanding.},
-     author={Gauthier, Jon and Ivanova, Anna},
-     booktitle={Conference on Cognitive Computational Neuroscience},
-     year={2018},
-   }
+     @inproceedings{gauthier2018does,
+       title={Does the brain represent words? An evaluation of brain decoding studies of language understanding.},
+       author={Gauthier, Jon and Ivanova, Anna},
+       booktitle={Conference on Cognitive Computational Neuroscience},
+       year={2018}
+     }
 
 ## Requirements
 
