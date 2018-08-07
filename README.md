@@ -1,11 +1,22 @@
 This repository contains analysis code for the paper:
-
-*Does the brain represent words? An evaluation of brain decoding studies of language understanding.* {Jon Gauthier and Anna Ivanova}. Submitted to CCN 2018.
+*Does the brain represent words? An evaluation of brain decoding studies of
+language understanding.* {Jon Gauthier and Anna Ivanova}. [2018 Conference on
+Cognitive Computational Neuroscience][2].
 
 Our study combines imaging data from [Pereira et al. (2018)][1] with various
 pretrained computational models. See the section ["Using the encoding
 models"](#using-the-encoding-models) for information about using these models
 to encode novel stimuli.
+
+This repository is open-source under the MIT License. If you would like to
+reuse our code or otherwise extend our work, please cite our paper:
+
+   @inproceedings{gauthier2018does,
+     title={Does the brain represent words? An evaluation of brain decoding studies of language understanding.},
+     author={Gauthier, Jon and Ivanova, Anna},
+     booktitle={Conference on Cognitive Computational Neuroscience},
+     year={2018},
+   }
 
 ## Requirements
 
@@ -55,3 +66,4 @@ ask!)
 
 
 [1]: TODO
+[2]: https://ccneuro.org/2018/Default.asp
