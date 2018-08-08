@@ -1,8 +1,8 @@
 This repository contains analysis code for the paper:
 
-*Does the brain represent words? An evaluation of brain decoding studies of
-language understanding.* {Jon Gauthier and Anna Ivanova}. [2018 Conference on
-Cognitive Computational Neuroscience][2].
+[*Does the brain represent words? An evaluation of brain decoding studies of
+language understanding.*][3] {Jon Gauthier and Anna Ivanova}. [2018 Conference
+on Cognitive Computational Neuroscience][2].
 
 Our study combines imaging data from [Pereira et al. (2018)][1] with various
 pretrained computational models. See the section ["Using the encoding
@@ -68,3 +68,4 @@ ask!)
 
 [1]: TODO
 [2]: https://ccneuro.org/2018/Default.asp
+[3]: https://arxiv.org/abs/1806.00591
