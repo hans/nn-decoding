@@ -106,18 +106,20 @@ def eval_encodings_rdm(encodings, enc1_key, enc2_key,
         out_f.write("%s,%d,%f,\"%s\",\"%s\"\n" % (enc2_key, i, dists_Y_square[sent1, sent2],
                                                   sentences[sent1], sentences[sent2]))
 
-  # Bootstrap estimate the Spearman coefficient.
-  spearman_coefs = []
-  for _ in trange(n_bootstrap_samples):
-    idxs = np.random.choice(len(enc1), size=len(enc1), replace=True)
-    dists_X_sample = dists_X_square[np.ix_(idxs, idxs)]
-    dists_Y_sample = dists_Y_square[np.ix_(idxs, idxs)]
+  # # Bootstrap estimate the Spearman coefficient.
+  # spearman_coefs = []
+  # for _ in trange(n_bootstrap_samples):
+  #   idxs = np.random.choice(len(enc1), size=len(enc1), replace=True)
+  #   dists_X_sample = dists_X_square[np.ix_(idxs, idxs)]
+  #   dists_Y_sample = dists_Y_square[np.ix_(idxs, idxs)]
 
-    # Compute Spearman coefficient on condensed / non-redundant form.
-    sample_coef, _ = spearmanr(squareform(dists_X_sample), squareform(dists_Y_sample))
-    spearman_coefs.append(sample_coef)
+  #   # Compute Spearman coefficient on condensed / non-redundant form.
+  #   sample_coef, _ = spearmanr(squareform(dists_X_sample), squareform(dists_Y_sample))
+  #   spearman_coefs.append(sample_coef)
 
-  return spearman_coefs
+  spearman_coef, _ = spearmanr(dists_X, dists_Y)
+  print("\t", enc1_key, enc2_key, spearman_coef)
+  return [spearman_coef]
 
 
 def eval_pair(inputs):
