@@ -127,9 +127,6 @@ def eval_pair(inputs):
   # Multiprocessing task function.
   if enc1 == enc2:
     return enc1, enc2, (1.0, 1.0)
-  elif enc1 < enc2:
-    # Measure should be symmetric -- only fill lower triangle of heatmap matrix.
-    return enc1, enc2, (None, None)
   else:
     coefs = eval_encodings_rdm(encodings, enc1, enc2, sentences=sentences)
     # Calculate 95% CI bounds
@@ -138,7 +135,7 @@ def eval_pair(inputs):
 
 
 def main(args):
-  encodings, encoding_keys = {}, {}
+  encodings, encoding_keys = {}, []
   for encoding_path in args.encodings:
     encodings_i = np.load(encoding_path)
     encoding_key = os.path.basename(encoding_path)
@@ -151,7 +148,7 @@ def main(args):
       encodings_i = pca.transform(encodings_i)
 
     encodings[encoding_key] = encodings_i
-    encoding_keys[encoding_path] = encoding_key
+    encoding_keys.append(encoding_key)
 
   sentences = None
   if args.sentences_path is not None:
@@ -161,14 +158,13 @@ def main(args):
   # Prepare output structures
   assert len(set(enc.shape[0] for enc in encodings.values())) == 1
   # Make sure to maintain ordering of the encodings given in the CLI arguments.
-  encoding_index = {encoding_keys[enc_path]: i for i, enc_path in enumerate(args.encodings)}
-  heatmap_mat_lower_bound = np.empty((len(encodings), len(encodings)))
-  heatmap_mat_upper_bound = np.empty_like(heatmap_mat_lower_bound)
+  heatmap_mat_lower_bound = np.zeros((len(encodings), len(encodings)))
+  heatmap_mat_upper_bound = np.zeros_like(heatmap_mat_lower_bound)
 
   # Prepare multiprocessing jobs
   pool = multiprocessing.Pool(processes=args.num_processes)
   job_inputs = [(enc1, enc2, encodings, sentences) for enc1, enc2
-                in itertools.product(sorted(encodings.keys()), repeat=2)]
+                in itertools.combinations(encoding_keys, 2)]
   jobs = pool.imap_unordered(eval_pair, job_inputs)
 
   # Join jobs and update matrices
@@ -179,9 +175,12 @@ def main(args):
       if lower_bound is None:
         continue
 
-      heatmap_mat_lower_bound[encoding_index[enc1], encoding_index[enc2]] = lower_bound
-      heatmap_mat_upper_bound[encoding_index[enc1], encoding_index[enc2]] = upper_bound
+      enc1_idx = encoding_keys.index(enc1)
+      enc2_idx = encoding_keys.index(enc2)
+      heatmap_mat_lower_bound[enc1_idx, enc2_idx] = lower_bound
+      heatmap_mat_upper_bound[enc1_idx, enc2_idx] = upper_bound
 
+  print(heatmap_mat_lower_bound)
   if args.names is not None:
     names = args.names.strip().split(",")
     assert len(names) == len(args.encodings)
@@ -191,9 +190,11 @@ def main(args):
   # Calculate heatmap statistics / render figures.
   for heatmap_mat, heatmap_name in zip([heatmap_mat_lower_bound, heatmap_mat_upper_bound],
                                        ["lower_bound", "upper_bound"]):
-    # Copy lower triangle of matrix to upper triangle.
-    heatmap_mat.T[np.tril_indices(len(heatmap_mat), -1)] = \
-        heatmap_mat[np.tril_indices(len(heatmap_mat), -1)]
+    # Copy upper triangle of matrix to lower triangle.
+    heatmap_mat[np.tril_indices(len(heatmap_mat), -1)] = \
+        heatmap_mat.T[np.tril_indices(len(heatmap_mat), -1)]
+
+    np.fill_diagonal(heatmap_mat, 1.0)
 
     df = pd.DataFrame(heatmap_mat, index=names, columns=names)
     df.mean(axis=1).to_csv("averages_%s.csv" % heatmap_name)
