@@ -77,7 +77,7 @@ def eval_encodings_rdm(encodings, enc1_key, enc2_key,
 
   # First align with CCA.
   from rcca import CCA, CCACrossValidate
-  cca = CCACrossValidate(kernelcca=False, regs=[1e-1,1.0,10.0], numCCs=[64,128,256])
+  cca = CCACrossValidate(kernelcca=False, regs=[1e-2,1e-1,1.0,10.0,20.0], numCCs=[32,64,128,256])
   cca.train([enc1, enc2])
   print("Best reg: %f; best CC: %i" % (cca.best_reg, cca.best_numCC))
 
