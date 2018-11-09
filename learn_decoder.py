@@ -4,6 +4,7 @@ Learn a decoder mapping from functional imaging data to target model
 representations.
 """
 from argparse import ArgumentParser
+from collections import defaultdict
 import itertools
 import logging
 from pathlib import Path
@@ -97,6 +98,8 @@ def run_fold(fold, encodings, permute_targets=False):
       evaluate baseline performance.
 
   Returns:
+    test_idxs: N_test vector indicating the index of each target
+      concept in the whole list of concepts
     rankings: N_test * N_concepts integer matrix. Each row is a list of concept
       IDs ranked using the model.
     rank_of_correct: N_test vector indicating the rank of the target concept
@@ -110,7 +113,7 @@ def run_fold(fold, encodings, permute_targets=False):
     np.random.shuffle(target_semantic_idxs)
 
   rankings, rank_of_correct = eval_ranks(clf, test_imaging, target_semantic_idxs, encodings)
-  return rankings, rank_of_correct
+  return target_semantic_idxs, rankings, rank_of_correct
 
 
 def main(args):
@@ -124,9 +127,14 @@ def main(args):
 
   if args.encoding_project is not None:
     logger.info("Projecting encodings to dimension %i with PCA", args.encoding_project)
-    pca = PCA(args.encoding_project).fit(encodings)
-    logger.info("PCA explained variance: %f", sum(pca.explained_variance_ratio_) * 100)
-    encodings = pca.transform(encodings)
+
+    if encodings.shape[1] < args.encoding_project:
+      logger.warn("Encodings are already below requested dimensionality: %i < %i"
+                  % (encodings.shape[1], args.encoding_project))
+    else:
+      pca = PCA(args.encoding_project).fit(encodings)
+      logger.info("PCA explained variance: %f", sum(pca.explained_variance_ratio_) * 100)
+      encodings = pca.transform(encodings)
 
   assert len(encodings) == len(sentences)
 
@@ -137,6 +145,7 @@ def main(args):
   index_vals = itertools.product(["ridge", "ridge_permute"], [p.name for p in subject_paths])
   mar_metrics = pd.DataFrame(columns=['mar_fold_%i' % i for i in range(args.n_folds)],
                              index=pd.MultiIndex.from_tuples(index_vals, names=("type", "subject")))
+  predicted_ranks = defaultdict(list)
 
   for path in tqdm(subject_paths, desc="subjects"):
     # Load subject data.
@@ -148,28 +157,40 @@ def main(args):
     assert len(subject_images) == len(sentences)
 
     # Track within-subject performance on test fold and permuted test fold.
-    # TODO: More aggressive random baseline would just select random idxs?
     perf_test, perf_permute = [], []
 
     folds = iter_folds(subject_images, encodings, n_folds=args.n_folds)
     for i, fold in enumerate(tqdm(folds, total=args.n_folds, desc="%s folds" % subject)):
-      _, rank_of_correct = run_fold(fold, encodings)
+      # Calculate predicted ranks and MAR for this subject on this fold
+      test_idxs, _, rank_of_correct = run_fold(fold, encodings)
+      predicted_ranks[subject].extend(list(zip(test_idxs, rank_of_correct)))
       perf_test.append(rank_of_correct.mean())
       tqdm.write("Fold %2i:\t\tmin %3.1f\tmean %3.1f\tmed %3.1f\tmax %3.1f" %
                  (i, rank_of_correct.min(), rank_of_correct.mean(),
                   np.median(rank_of_correct), rank_of_correct.max()))
 
-      _, rank_of_correct_permute = run_fold(fold, encodings, permute_targets=True)
+      # Baseline: test-time prediction with permuted labels
+      _, _, rank_of_correct_permute = run_fold(fold, encodings, permute_targets=True)
       perf_permute.append(rank_of_correct_permute.mean())
       tqdm.write("Fold permuted %2i:\tmin %3.1f\tmean %3.1f\tmed %3.1f\tmax %3.1f" %
                  (i, rank_of_correct_permute.min(), rank_of_correct_permute.mean(),
                   np.median(rank_of_correct_permute), rank_of_correct_permute.max()))
 
+    # Save MAR results.
     mar_metrics.loc["ridge", subject] = perf_test
     mar_metrics.loc["ridge_permute", subject] = perf_permute
 
+  # Save mean-average-rank metrics.
   print(mar_metrics)
-  mar_metrics.to_csv(args.out_path)
+  mar_metrics.to_csv(args.out_prefix + ".csv")
+
+  # Save per-sentence outputs.
+  predicted_ranks = list(itertools.chain.from_iterable(
+    [(subject, idx, rank) for idx, rank in subject_ranks]
+    for subject, subject_ranks in predicted_ranks.items()))
+  predicted_ranks = pd.DataFrame(predicted_ranks, columns=["subject", "idx", "rank"]) \
+      .set_index(["subject", "idx"])
+  predicted_ranks.to_csv(args.out_prefix + ".pred.csv")
 
 
 if __name__ == '__main__':
@@ -181,6 +202,6 @@ if __name__ == '__main__':
   p.add_argument("--encoding_project", type=int)
   p.add_argument("--n_folds", type=int, default=18)
   p.add_argument("--mat_name", default="examples_384sentences.mat")
-  p.add_argument("--out_path", default="decoder_perf.csv")
+  p.add_argument("--out_prefix", default="decoder_perf")
 
   main(p.parse_args())

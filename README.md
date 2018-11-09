@@ -36,14 +36,9 @@ models tested in the paper. The remaining necessary analysis steps are as
 follows:
 
 1. Fetch the public data of [Pereira et al. (2018)][1] using the script
-   `fetch_data.sh` (requires TODO GB of disk space).
-2. Use `learn_decoder.py` to learn decoders from subject fMRI data to each of
-   the target representations (stored in the `encodings` directory):
-
-       for encoding in baseline dissent.books8.epoch9 fairseq.wmt14.en-fr.fconv imdbsentiment infersent.allnli order-embeddings skipthought; do
-           python learn_decoder.py data/stimuli_384sentences.txt encodings/384sentences.${encoding.npy} data \
-               --encoding_project 256 --out_path perf.${encoding}.csv
-       done
+   `scripts/fetch_data.sh` (requires 25 GB of disk space).
+2. Use `scripts/learn_decoders.sh` to learn decoders from subject fMRI data to each of
+   the target representations (stored in the `encodings` directory).
 3. Open `analysis.ipynb` with Jupyter and re-run all cells, changing references
    to the output `perf.*.csv` files if necessary. The notebook renders
    per-subject performance graphs for each learned decoder, along with a
