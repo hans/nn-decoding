@@ -122,19 +122,25 @@ def main(args):
   with open(args.sentences_path, "r") as sentences_f:
     sentences = [line.strip() for line in sentences_f]
 
-  encodings = np.load(args.encoding_path)
-  logger.info("Loaded encodings of size %s.", encodings.shape)
+  encodings = []
+  for encoding_path in args.encoding_paths:
+    encodings_i = np.load(encoding_path)
+    logger.info("%s: Loaded encodings of size %s.", encoding_path, encodings_i.shape)
 
-  if args.encoding_project is not None:
-    logger.info("Projecting encodings to dimension %i with PCA", args.encoding_project)
+    if args.encoding_project is not None:
+      logger.info("Projecting encodings to dimension %i with PCA", args.encoding_project)
 
-    if encodings.shape[1] < args.encoding_project:
-      logger.warn("Encodings are already below requested dimensionality: %i < %i"
-                  % (encodings.shape[1], args.encoding_project))
-    else:
-      pca = PCA(args.encoding_project).fit(encodings)
-      logger.info("PCA explained variance: %f", sum(pca.explained_variance_ratio_) * 100)
-      encodings = pca.transform(encodings)
+      if encodings_i.shape[1] < args.encoding_project:
+        logger.warn("Encodings are already below requested dimensionality: %i < %i"
+                    % (encodings_i.shape[1], args.encoding_project))
+      else:
+        pca = PCA(args.encoding_project).fit(encodings_i)
+        logger.info("PCA explained variance: %f", sum(pca.explained_variance_ratio_) * 100)
+        encodings_i = pca.transform(encodings_i)
+
+    encodings.append(encodings_i)
+
+  encodings = np.concatenate(encodings, axis=1)
 
   assert len(encodings) == len(sentences)
 
@@ -197,8 +203,8 @@ if __name__ == '__main__':
   p = ArgumentParser()
 
   p.add_argument("sentences_path")
-  p.add_argument("encoding_path")
   p.add_argument("subject_dir")
+  p.add_argument("encoding_paths", nargs="+")
   p.add_argument("--encoding_project", type=int)
   p.add_argument("--n_folds", type=int, default=18)
   p.add_argument("--mat_name", default="examples_384sentences.mat")
