@@ -2,7 +2,9 @@
 Data analysis tools shared across scripts and notebooks.
 """
 
+from collections import defaultdict
 import itertools
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -29,7 +31,8 @@ def load_decoding_perf(name, results_path, ax=None):
         ax.set_ylabel("average rank")
         ax.set_title("%s: Within-subject MAR" % name)
     
-    subj_perf = df.groupby("type").apply(lambda sub_df: sub_df.reset_index(level=0, drop=True).mean(axis=1)).T
+    subj_perf = df.groupby("type").apply(
+        lambda sub_df: sub_df.reset_index(level=0, drop=True).T.agg(["mean", "sem"]))
     #subj_perf.plot.bar(title="%s: Within-subject MAR" % name)
     
     return subj_perf
@@ -59,3 +62,82 @@ def wilcoxon_rank_preds(models, correct_bonferroni=True, pairs=None):
         results["p_val_corrected"] = results.p_val / correction
         
     return results
+
+
+def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
+    """
+    Load metadata for an instance of a finetuned BERT model.
+    """
+    savedir = Path(savedir)
+    
+    import tensorflow as tf
+    from tensorflow.python.pywrap_tensorflow import NewCheckpointReader
+    try:
+        ckpt = NewCheckpointReader(str(savedir / "model.ckpt"))
+    except tf.errors.NotFoundError:
+        if checkpoint_steps is None:
+            raise
+        ckpt = NewCheckpointReader(str(savedir / ("model.ckpt-%i" % checkpoint_steps[-1])))
+    
+    ret = {}
+    try:
+        ret["global_steps"] = ckpt.get_tensor("global_step")
+        ret["output_dims"] = ckpt.get_tensor("output_bias").shape[0]
+    except tf.errors.NotFoundError: pass
+    
+    ret["steps"] = defaultdict(dict)
+    
+    # Load training events data.
+    try:
+        events_file = next(savedir.glob("events.*"))
+    except StopIteration:
+        # no events data -- skip
+        pass
+    else:
+        total_global_norm = 0.
+        first_loss, cur_loss = None, None
+        tags = set()
+        for e in tf.train.summary_iterator(str(events_file)):
+            for v in e.summary.value:
+                tags.add(v.tag)
+                if v.tag == "grads/global_norm":
+                    total_global_norm += v.simple_value
+                elif v.tag == "loss_1":
+                    if e.step == 1:
+                        first_loss = v.simple_value
+                    cur_loss = v.simple_value
+                    
+            if checkpoint_steps is None or e.step in checkpoint_steps:
+                ret["steps"][e.step].update({
+                    "total_global_norms": total_global_norm,
+                    "train_loss": cur_loss,
+                    "train_loss_norm": cur_loss / ret["output_dims"]
+                })
+                
+        ret["first_train_loss"] = first_loss
+        ret["first_train_loss_norm"] = first_loss / ret["output_dims"]
+        
+    # Load eval events data.
+    try:
+        eval_events_file = next(savedir.glob("eval/events.*"))
+    except StopIteration:
+        # no eval events data -- skip
+        pass
+    else:
+        tags = set()
+        eval_loss, eval_accuracy = None, None
+        for e in tf.train.summary_iterator(str(eval_events_file)):
+            for v in e.summary.value:
+                tags.add(v.tag)
+                if v.tag == "eval_loss":
+                    eval_loss = v.simple_value
+                elif v.tag == "eval_accuracy":
+                    eval_accuracy = v.simple_value
+                
+            if checkpoint_steps is None or e.step in checkpoint_steps:
+                ret["steps"][e.step].update({
+                    "eval_accuracy": eval_accuracy,
+                    "eval_loss": eval_loss,
+                })
+                
+    return ret
