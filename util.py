@@ -7,9 +7,16 @@ import itertools
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 import scipy.stats as st
+
+
+def load_sentences(sentence_path="data/stimuli_384sentences.txt"):
+    with open(sentence_path, "r") as f:
+        sentences = [line.strip() for line in f]
+    return sentences
 
 
 def load_decoding_perf(name, results_path, ax=None):
@@ -83,7 +90,9 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
     try:
         ret["global_steps"] = ckpt.get_tensor("global_step")
         ret["output_dims"] = ckpt.get_tensor("output_bias").shape[0]
-    except tf.errors.NotFoundError: pass
+    except tf.errors.NotFoundError:
+        ret.setdefault("global_steps", np.nan)
+        ret.setdefault("output_dims", np.nan)
     
     ret["steps"] = defaultdict(dict)
     
@@ -102,7 +111,10 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
                 tags.add(v.tag)
                 if v.tag == "grads/global_norm":
                     total_global_norm += v.simple_value
-                elif v.tag == "loss_1":
+                elif v.tag in ["loss_1", "loss"]:
+                    # SQuAD output stores loss in `loss` key;
+                    # classifier stores in `loss_1` key.
+                    
                     if e.step == 1:
                         first_loss = v.simple_value
                     cur_loss = v.simple_value

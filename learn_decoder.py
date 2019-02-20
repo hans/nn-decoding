@@ -16,6 +16,8 @@ from sklearn.linear_model import RidgeCV
 import scipy.io
 from tqdm import tqdm
 
+import util
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -119,8 +121,7 @@ def run_fold(fold, encodings, permute_targets=False):
 def main(args):
   print(args)
 
-  with open(args.sentences_path, "r") as sentences_f:
-    sentences = [line.strip() for line in sentences_f]
+  sentences = util.load_sentences(args.sentences_path)
 
   encodings = []
   for encoding_path in args.encoding_paths:
