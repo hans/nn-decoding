@@ -56,6 +56,8 @@ def wilcoxon_rank_preds(models, correct_bonferroni=True, pairs=None):
     model_preds = {model: pd.read_csv("perf.384sentences.%s.pred.csv" % path).sort_index()
                    for model, path in models.items()}
     
+    subjects = next(iter(model_preds.values())).subject.unique()
+    
     results = []
     for model1, model2 in pairs:
         w_stat, p_val = st.wilcoxon(model_preds[model1]["rank"], model_preds[model2]["rank"])
@@ -65,7 +67,8 @@ def wilcoxon_rank_preds(models, correct_bonferroni=True, pairs=None):
         .set_index(["model1", "model2"])
     
     if correct_bonferroni:
-        correction = len(pairs)
+        correction = len(pairs) * len(subjects)
+        print(0.01 / correction, len(subjects))
         results["p_val_corrected"] = results.p_val / correction
         
     return results
