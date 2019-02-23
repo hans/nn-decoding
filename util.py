@@ -58,18 +58,21 @@ def wilcoxon_rank_preds(models, correct_bonferroni=True, pairs=None):
     
     subjects = next(iter(model_preds.values())).subject.unique()
     
-    results = []
+    results = {}
     for model1, model2 in pairs:
-        w_stat, p_val = st.wilcoxon(model_preds[model1]["rank"], model_preds[model2]["rank"])
-        results.append((model1, model2, w_stat, p_val))
+        m1_preds, m2_preds = model_preds[model1], model_preds[model2]
+        m_preds = m1_preds.join(m2_preds["rank"], rsuffix="_m2")
+        pair_results = m_preds.groupby("subject").apply(lambda xs: st.wilcoxon(xs["rank"], xs["rank_m2"])) \
+            .apply(lambda ys: pd.Series(ys, index=("w_stat", "p_val")))
         
-    results = pd.DataFrame(results, columns=["model1", "model2", "w_stat", "p_val"]) \
-        .set_index(["model1", "model2"])
+        results[model1, model2] = pair_results
+        
+    results = pd.concat(results, names=["model1", "model2"]).sort_index()
     
     if correct_bonferroni:
-        correction = len(pairs) * len(subjects)
-        print(0.01 / correction, len(subjects))
-        results["p_val_corrected"] = results.p_val / correction
+        correction = len(results)
+        print(0.01 / correction, len(results))
+        results["p_val_corrected"] = results.p_val * correction
         
     return results
 
