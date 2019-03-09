@@ -8,207 +8,154 @@ from collections import defaultdict
 import itertools
 import logging
 from pathlib import Path
+import time
 
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
-from sklearn.linear_model import RidgeCV
+from sklearn.linear_model import RidgeCV, Ridge
+from sklearn.model_selection import KFold, cross_val_score, GridSearchCV
 import scipy.io
+from scipy.spatial import distance
 from tqdm import tqdm
 
 import util
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+L = logging.getLogger(__name__)
+
+# Candidate ridge regression regularization parameters.
+ALPHAS = [1, 10, .01, 100, .001, 1000, .0001, 10000, .00001, 100000, .000001, 1000000, 10000000]
 
 
-def learn_decoder(images, encodings):
+def learn_decoder(images, encodings, cv=None, n_jobs=1):
   """
   Learn a decoder mapping from sentence encodings to subject brain images.
   """
-  ridge = RidgeCV(
-      alphas=[1, 10, .01, 100, .001, 1000, .0001, 10000, .00001, 100000, .000001, 1000000, 10000000],
-      fit_intercept=False
-  )
-  ridge.fit(images, encodings)
-  logger.debug("Best alpha: %f", ridge.alpha_)
-  return ridge
+  gs = GridSearchCV(Ridge(fit_intercept=False, normalize=False),
+                    {"alpha": ALPHAS}, cv=cv, n_jobs=n_jobs, verbose=10)
+  gs.fit(images, encodings)
+  decoder = gs.best_estimator_
+
+  L.debug("Best alpha: %f", decoder.alpha_)
+  return decoder
 
 
-def iter_folds(subject_data, encodings, n_folds=18):
+def eval_ranks(decoder, X_test, Y_test_idxs, encodings_normed):
   """
-  Yield CV folds of a dataset.
-  """
-  N = len(subject_data)
-  assert N == len(encodings)
-
-  fold_size = N // n_folds
-  for fold_i in range(n_folds):
-    # NB doesn't handle oddly sized final folds
-    idxs = np.arange(fold_i * fold_size, (fold_i + 1) * fold_size)
-    mask = np.zeros(N, dtype=np.bool)
-    mask[idxs] = True
-
-    train_imaging = subject_data[~mask]
-    train_semantic = encodings[~mask]
-
-    test_imaging = subject_data[mask]
-    test_semantic = encodings[mask]
-    target_semantic_idxs = idxs
-
-    yield (train_imaging, train_semantic), (test_imaging, test_semantic, target_semantic_idxs)
-
-
-def eval_ranks(clf, test_imaging, target_semantic_idxs, encodings):
-  """
-  Evaluate a trained classifier, predicting the concepts associated with test imaging data.
+  Evaluate a trained decoder, predicting the concepts associated with test
+  imaging data.
 
   Returns:
-    rankings: N_test * N_concepts integer matrix. Each row is a list of concept IDs
-      ranked using the model.
-    rank_of_correct: N_test vector indicating the rank of the target concept for each
-      test input.
+    ranks: len(Y_test_idxs) * len(Y) integer matrix. Each row specifies a
+      ranking over sentences computed using the decoding model, given the
+      brain image corresponding to each row of Y_test_idxs.
+    rank_of_correct: len(Y_test_idxs) array indicating the rank of the target
+      concept for each test input.
   """
-  N_test = len(test_imaging)
-  assert N_test == len(target_semantic_idxs)
+  N_test = len(X_test)
+  assert N_test == len(Y_test_idxs)
 
-  # yields an N_test * D_sem matrix
-  pred_semantic = clf.predict(test_imaging)
+  Y_pred = decoder.predict(X_test)
 
-  # calculate pairwise similarities with semantic data
-  # yields an N_test * C matrix
-  pred_semantic /= np.linalg.norm(pred_semantic, axis=1, keepdims=True)
-  encodings_normed = encodings / np.linalg.norm(encodings, axis=1, keepdims=True)
-  similarities = np.dot(pred_semantic, encodings_normed.T)
+  # For each Y_pred, evaluate rank of corresponding Y_test example among the
+  # entire collection of Ys (not just Y_test), where rank is established by
+  # cosine distance.
+  Y_pred /= np.linalg.norm(Y_pred, axis=1, keepdims=True)
+  # n_Y_test * n_sentences
+  similarities = np.dot(Y_pred, encodings_normed.T)
 
-  # Rank similarities row-wise in descending order
-  rankings = np.argsort(-similarities, axis=1)
-  # Find the rank of the desired concept vector
-  matches = np.equal(rankings, target_semantic_idxs[:, np.newaxis])
-  rank_of_correct = np.argmax(matches, axis=1)
-  return rankings, rank_of_correct
+  # Calculate distance ranks across rows.
+  orders = (-similarities).argsort(axis=1)
+  ranks = orders.argsort(axis=1)
+  # Find the rank of the desired vectors.
+  ranks_test = ranks[np.arange(len(Y_test_idxs)), Y_test_idxs]
 
-
-def run_fold(fold, encodings, permute_targets=False):
-  """
-  Train and evaluate a classifier on the given CV setup.
-
-  Args:
-    fold:
-    encodings: N_concepts * encoding_dim matrix
-    permute_targets: If `True`, permute the target semantic idxs in order to
-      evaluate baseline performance.
-
-  Returns:
-    test_idxs: N_test vector indicating the index of each target
-      concept in the whole list of concepts
-    rankings: N_test * N_concepts integer matrix. Each row is a list of concept
-      IDs ranked using the model.
-    rank_of_correct: N_test vector indicating the rank of the target concept
-      for each test input.
-  """
-  (train_imaging, train_semantic), (test_imaging, test_semantic, target_semantic_idxs) = fold
-  clf = learn_decoder(train_imaging, train_semantic)
-
-  if permute_targets:
-    target_semantic_idxs = target_semantic_idxs.copy()
-    np.random.shuffle(target_semantic_idxs)
-
-  rankings, rank_of_correct = eval_ranks(clf, test_imaging, target_semantic_idxs, encodings)
-  return target_semantic_idxs, rankings, rank_of_correct
+  return ranks, rank_test
 
 
 def main(args):
   print(args)
 
   sentences = util.load_sentences(args.sentences_path)
-
-  encodings = []
-  for encoding_path in args.encoding_paths:
-    encodings_i = np.load(encoding_path)
-    logger.info("%s: Loaded encodings of size %s.", encoding_path, encodings_i.shape)
-
-    if args.encoding_project is not None:
-      logger.info("Projecting encodings to dimension %i with PCA", args.encoding_project)
-
-      if encodings_i.shape[1] < args.encoding_project:
-        logger.warn("Encodings are already below requested dimensionality: %i < %i"
-                    % (encodings_i.shape[1], args.encoding_project))
-      else:
-        pca = PCA(args.encoding_project).fit(encodings_i)
-        logger.info("PCA explained variance: %f", sum(pca.explained_variance_ratio_) * 100)
-        encodings_i = pca.transform(encodings_i)
-
-    encodings.append(encodings_i)
-
-  encodings = np.concatenate(encodings, axis=1)
+  encodings = util.load_encodings(args.encoding_paths, project=args.encoding_project)
+  encodings_normed = encodings / np.linalg.norm(encodings, axis=1, keepdims=True)
 
   assert len(encodings) == len(sentences)
 
-  ######### Prepare to process subjects.
-  subject_paths = [item for item in Path(args.subject_dir).glob("*") if item.is_dir()]
+  ######### Prepare to process subject.
 
-  # Track within-subject performance on test folds and permuted test folds.
-  index_vals = itertools.product(["ridge", "ridge_permute"], [p.name for p in subject_paths])
-  mar_metrics = pd.DataFrame(columns=['mar_fold_%i' % i for i in range(args.n_folds)],
-                             index=pd.MultiIndex.from_tuples(index_vals, names=("type", "subject")))
-  predicted_ranks = defaultdict(list)
+  # Load subject data.
+  subject = args.subject_name or args.brain_path.name
+  subject_data = scipy.io.loadmat(str(args.brain_path / args.mat_name))
+  L.info("Loaded subject %s data.", subject)
 
-  for path in tqdm(subject_paths, desc="subjects"):
-    # Load subject data.
-    subject = path.name
-    subject_data = scipy.io.loadmat(str(path / args.mat_name))
-    logger.info("Loaded subject %s data.", subject)
+  subject_images = subject_data["examples"]
+  assert len(subject_images) == len(sentences)
 
-    subject_images = subject_data["examples"]
-    assert len(subject_images) == len(sentences)
+  ######### Prepare learning setup.
 
-    # Track within-subject performance on test fold and permuted test fold.
-    perf_test, perf_permute = [], []
+  # Track within-subject performance.
+  index = pd.MultiIndex.from_product(([subject], np.arange(args.n_folds)))
+  metrics = pd.DataFrame(columns=["avg_rank"], index=index)
 
-    folds = iter_folds(subject_images, encodings, n_folds=args.n_folds)
-    for i, fold in enumerate(tqdm(folds, total=args.n_folds, desc="%s folds" % subject)):
-      # Calculate predicted ranks and MAR for this subject on this fold
-      test_idxs, _, rank_of_correct = run_fold(fold, encodings)
-      predicted_ranks[subject].extend(list(zip(test_idxs, rank_of_correct)))
-      perf_test.append(rank_of_correct.mean())
-      tqdm.write("Fold %2i:\t\tmin %3.1f\tmean %3.1f\tmed %3.1f\tmax %3.1f" %
-                 (i, rank_of_correct.min(), rank_of_correct.mean(),
-                  np.median(rank_of_correct), rank_of_correct.max()))
+  # Prepare nested CV.
+  # Inner CV is responsible for hyperparameter optimization;
+  # outer CV is responsible for prediction.
+  state = int(time.time())
+  inner_cv = KFold(n_splits=args.n_folds, shuffle=True, random_state=state)
+  outer_cv = KFold(n_splits=args.n_folds, shuffle=True, random_state=state)
 
-      # Baseline: test-time prediction with permuted labels
-      _, _, rank_of_correct_permute = run_fold(fold, encodings, permute_targets=True)
-      perf_permute.append(rank_of_correct_permute.mean())
-      tqdm.write("Fold permuted %2i:\tmin %3.1f\tmean %3.1f\tmed %3.1f\tmax %3.1f" %
-                 (i, rank_of_correct_permute.min(), rank_of_correct_permute.mean(),
-                  np.median(rank_of_correct_permute), rank_of_correct_permute.max()))
+  # Prepare scoring function for outer CV.
+  def scoring_fn(decoder, X_test, Y_test_idxs):
+    """
+    Evaluate a learned decoder on test data mapping brain images X to model
+    encodings Y.
 
-    # Save MAR results.
-    mar_metrics.loc["ridge", subject] = perf_test
-    mar_metrics.loc["ridge_permute", subject] = perf_permute
+    Returns:
+      avg_rank: Average distance rank of ground-truth sentence from predicted
+        sentence vectors across the test data.
+    """
+    ranks, ranks_test = eval_ranks(decoder, X_test, Y_test_idxs, encodings_normed)
+    return ranks_test.mean()
 
-  # Save mean-average-rank metrics.
-  print(mar_metrics)
-  mar_metrics.to_csv(args.out_prefix + ".csv")
+  ######## Run learning.
 
-  # Save per-sentence outputs.
-  predicted_ranks = list(itertools.chain.from_iterable(
-    [(subject, idx, rank) for idx, rank in subject_ranks]
-    for subject, subject_ranks in predicted_ranks.items()))
-  predicted_ranks = pd.DataFrame(predicted_ranks, columns=["subject", "idx", "rank"]) \
-      .set_index(["subject", "idx"])
-  predicted_ranks.to_csv(args.out_prefix + ".pred.csv")
+  X = subject_images
+  Y = encodings
+  Y_idxs = np.arange(len(encodings))
+
+  # Run inner CV.
+  decoder = learn_decoder(X, Y, cv=inner_cv, n_jobs=args.n_jobs)
+  # Run outer CV.
+  decoder_scores = cross_val_score(decoder, X, Y_idxs, cv=outer_cv)
+
+
+  ######### Save results.
+
+  metrics.loc[subject_name, np.arange(len(decoder_scores))]["avg_rank"] = decoder_scores
+  metrics.to_csv(args.out_prefix + ".csv")
+
+  # # Save per-sentence outputs.
+  # predicted_ranks = list(itertools.chain.from_iterable(
+  #   [(subject, idx, rank) for idx, rank in subject_ranks]
+  #   for subject, subject_ranks in predicted_ranks.items()))
+  # predicted_ranks = pd.DataFrame(predicted_ranks, columns=["subject", "idx", "rank"]) \
+  #     .set_index(["subject", "idx"])
+  # predicted_ranks.to_csv(args.out_prefix + ".pred.csv")
 
 
 if __name__ == '__main__':
   p = ArgumentParser()
 
-  p.add_argument("sentences_path")
-  p.add_argument("subject_dir")
-  p.add_argument("encoding_paths", nargs="+")
+  p.add_argument("sentences_path", type=Path)
+  p.add_argument("brain_path", type=Path)
+  p.add_argument("encoding_paths", type=Path, nargs="+")
   p.add_argument("--encoding_project", type=int)
-  p.add_argument("--n_folds", type=int, default=18)
+  p.add_argument("--n_folds", type=int, default=12)
   p.add_argument("--mat_name", default="examples_384sentences.mat")
   p.add_argument("--out_prefix", default="decoder_perf")
+  p.add_argument("--subject_name", help="By default, basename of brain_path")
+  p.add_argument("--n_jobs", type=int, default=1)
 
   main(p.parse_args())
