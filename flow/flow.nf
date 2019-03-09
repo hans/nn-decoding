@@ -23,18 +23,29 @@ params.decoder_projection = 256
 bert_tasks = Channel.from("MNLI", "SST", "QQP", "SQuAD")
 
 process finetune {
-    bert_base_dir = [params.bert_dir, params.bert_base_model].join("/")
+    tag "$glue_task"
+    label "om_gpu_tf"
 
     input:
-    set task from bert_tasks
+    val glue_task from bert_tasks
+
+    // TODO track dynamics
 
     output:
-    set task, "model.ckpt*" into model_ckpts
+    set glue_task, "model.ckpt*" into model_ckpts
+
+    bert_base_dir = [params.bert_dir, params.bert_base_model].join("/")
 
     """
+    echo $glue_task > model.ckpt-index
+    echo "$glue_task abc" > model.ckpt-data
+    """
+
+/*
+    """
 #!/bin/bash
-python run_classifier.py --task_name=$task --do_train=true --do_eval=true \
-    --data_dir=${params.glue_base_dir}/${task} \
+python run_classifier.py --task_name=$glue_task --do_train=true --do_eval=true \
+    --data_dir=${params.glue_base_dir}/${glue_task} \
     --vocab_file ${bert_base_dir}/vocab.txt \
     --bert_config_file ${bert_base_dir}/bert_config.json \
     --init_checkpoint ${bert_base_dir}/bert_model.ckpt \
@@ -44,16 +55,25 @@ python run_classifier.py --task_name=$task --do_train=true --do_eval=true \
     --max_seq_length 128 \
     --train_batch_size 32 \
     --output_dir .
-    """
+    """*/
 }
 
 process extractEncoding {
     input:
-    set model, file(ckpt) from model_ckpts
+    set model, file(ckpt_files) from model_ckpts
 
     output:
     set model, "encodings.jsonl" into encodings_jsonl
 
+    tag "$model"
+
+    script:
+    ckpt_prefix = ckpt_files[0].name.split("-")[0]
+    """
+    cp ${ckpt_prefix}-index encodings.jsonl
+    """
+
+/*
     """
 #!/bin/bash
 python extract_features.py --input_file=${sentences_path} \
@@ -64,7 +84,7 @@ python extract_features.py --input_file=${sentences_path} \
     --layers="${extract_encoding_layers}" \
     --max_seq_length=128 \
     --batch_size=64
-    """
+    """*/
 }
 
 process convertEncoding {
@@ -74,12 +94,19 @@ process convertEncoding {
     output:
     set model, "encodings.npy" into encodings
 
+    tag "$model"
+
+    """
+    cp $encoding_jsonl encodings.npy
+    """
+
+    /*
     """
 python process_encodings.py \
     -i ${encoding_jsonl} \
     -l ${extract_encoding_layers} \
     -o encodings.npy
-    """
+    """*/
 }
 
 process learnDecoder {
@@ -89,11 +116,18 @@ process learnDecoder {
     set model, file(encoding) from encodings
 
     output:
-    file "perf.csv"
+    file "${model}.csv"
 
+    tag "$model"
+
+    """
+    cp $encoding ${model}.csv
+    """
+
+    /*
     """
 #!/bin/bash
 python learn_decoder.py ${sentences_path} ${brain_data_path} ${encoding} \
     --encoding_project ${decoder_projection}
-    """
+    """*/
 }
