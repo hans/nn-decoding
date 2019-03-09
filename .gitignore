@@ -3,3 +3,5 @@ perf.*.csv
 encodings/*.npy
 .ipynb_checkpoints
 .nextflow*
+data/brains/*
+data/sentences/*
