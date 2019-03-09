@@ -107,6 +107,7 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
         events_file = next(savedir.glob("events.*"))
     except StopIteration:
         # no events data -- skip
+        print("Missing training events file in savedir: %s", savedir)
         pass
     else:
         total_global_norm = 0.
@@ -140,6 +141,7 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
         eval_events_file = next(savedir.glob("eval/events.*"))
     except StopIteration:
         # no eval events data -- skip
+        print("Missing eval events data in savedir: %s" % savedir)
         pass
     else:
         tags = set()
