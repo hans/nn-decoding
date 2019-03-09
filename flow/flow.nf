@@ -23,7 +23,6 @@ params.decoder_projection = 256
 bert_tasks = Channel.from("MNLI", "SST", "QQP", "SQuAD")
 
 process finetune {
-    tag "$glue_task"
     label "om_gpu_tf"
 
     input:
@@ -33,6 +32,8 @@ process finetune {
 
     output:
     set glue_task, "model.ckpt*" into model_ckpts
+
+    tag "$glue_task"
 
     bert_base_dir = [params.bert_dir, params.bert_base_model].join("/")
 
@@ -59,6 +60,8 @@ python run_classifier.py --task_name=$glue_task --do_train=true --do_eval=true \
 }
 
 process extractEncoding {
+    label "om_gpu_tf"
+
     input:
     set model, file(ckpt_files) from model_ckpts
 
@@ -88,6 +91,8 @@ python extract_features.py --input_file=${sentences_path} \
 }
 
 process convertEncoding {
+    label "om"
+
     input:
     set model, file(encoding_jsonl) from encodings_jsonl
 
@@ -110,6 +115,7 @@ python process_encodings.py \
 }
 
 process learnDecoder {
+    label "om"
     publishDir "decoders"
 
     input:
@@ -127,6 +133,7 @@ process learnDecoder {
     /*
     """
 #!/bin/bash
+source activate decoding
 python learn_decoder.py ${sentences_path} ${brain_data_path} ${encoding} \
     --encoding_project ${decoder_projection}
     """*/
