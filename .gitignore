@@ -1,3 +1,5 @@
 __pycache__
 perf.*.csv
 encodings/*.npy
+.ipynb_checkpoints
+.nextflow*
