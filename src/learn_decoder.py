@@ -13,8 +13,9 @@ import time
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
-from sklearn.linear_model import RidgeCV, Ridge
-from sklearn.model_selection import KFold, cross_val_score, GridSearchCV
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import KFold, cross_val_predict, GridSearchCV
 import scipy.io
 from scipy.spatial import distance
 from tqdm import tqdm
@@ -25,20 +26,7 @@ logging.basicConfig(level=logging.INFO)
 L = logging.getLogger(__name__)
 
 # Candidate ridge regression regularization parameters.
-ALPHAS = [1, 10, .01, 100, .001, 1000, .0001, 10000, .00001, 100000, .000001, 1000000, 10000000]
-
-
-def learn_decoder(images, encodings, cv=None, n_jobs=1):
-  """
-  Learn a decoder mapping from sentence encodings to subject brain images.
-  """
-  gs = GridSearchCV(Ridge(fit_intercept=False, normalize=False),
-                    {"alpha": ALPHAS}, cv=cv, n_jobs=n_jobs, verbose=10)
-  gs.fit(images, encodings)
-  decoder = gs.best_estimator_
-
-  L.debug("Best alpha: %f", decoder.alpha_)
-  return decoder
+ALPHAS = [1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e1, 1e2, 1e3]
 
 
 def eval_ranks(decoder, X_test, Y_test_idxs, encodings_normed):
@@ -92,12 +80,14 @@ def main(args):
 
   subject_images = subject_data["examples"]
   assert len(subject_images) == len(sentences)
+  subject_images = PCA(256).fit_transform(subject_images)
 
   ######### Prepare learning setup.
 
   # Track within-subject performance.
-  index = pd.MultiIndex.from_product(([subject], np.arange(args.n_folds)))
-  metrics = pd.DataFrame(columns=["avg_rank"], index=index)
+  index = pd.MultiIndex.from_product(([subject], np.arange(args.n_folds)),
+                                     names=("subject", "metric"))
+  metrics = pd.DataFrame(columns=["mse"], index=index)
 
   # Prepare nested CV.
   # Inner CV is responsible for hyperparameter optimization;
@@ -106,43 +96,47 @@ def main(args):
   inner_cv = KFold(n_splits=args.n_folds, shuffle=True, random_state=state)
   outer_cv = KFold(n_splits=args.n_folds, shuffle=True, random_state=state)
 
-  # Prepare scoring function for outer CV.
-  def scoring_fn(decoder, X_test, Y_test_idxs):
-    """
-    Evaluate a learned decoder on test data mapping brain images X to model
-    encodings Y.
+  # Final data prep: normalize.
+  X = subject_images / np.linalg.norm(subject_images, axis=1, keepdims=True)
+  Y = encodings / np.linalg.norm(encodings, axis=1, keepdims=True)
 
-    Returns:
-      avg_rank: Average distance rank of ground-truth sentence from predicted
-        sentence vectors across the test data.
-    """
-    ranks, ranks_test = eval_ranks(decoder, X_test, Y_test_idxs, encodings_normed)
-    return ranks_test.mean()
+  # # Prepare scoring function for outer CV.
+  # def scoring_fn(decoder, idxs, _):
+  #   """
+  #   Evaluate a learned decoder on test data, given indices of test data in the
+  #   outer matrix.
+
+  #   Returns:
+  #     avg_rank: Average distance rank of ground-truth sentence from predicted
+  #       sentence vectors across the test data.
+  #   """
+  #   ranks, ranks_test = eval_ranks(decoder, X[idxs], idxs, encodings_normed)
+  #   return ranks_test.mean()
 
   ######## Run learning.
 
-  X = subject_images
-  Y = encodings
-  Y_idxs = np.arange(len(encodings))
-
   # Run inner CV.
-  decoder = learn_decoder(X, Y, cv=inner_cv, n_jobs=args.n_jobs)
+  gs = GridSearchCV(Ridge(fit_intercept=False, normalize=False),
+                    {"alpha": ALPHAS}, cv=inner_cv, n_jobs=args.n_jobs, verbose=10)
   # Run outer CV.
-  decoder_scores = cross_val_score(decoder, X, Y_idxs, cv=outer_cv)
+  decoder_predictions = cross_val_predict(gs, X, Y, cv=outer_cv)
 
+  ######### Evaluate.
+
+  metrics.loc[subject, "mse"] = mean_squared_error(Y, decoder_predictions)
+  metrics.loc[subject, "r2"] = r2_score(Y, decoder_predictions)
 
   ######### Save results.
 
-  metrics.loc[subject_name, np.arange(len(decoder_scores))]["avg_rank"] = decoder_scores
-  metrics.to_csv(args.out_prefix + ".csv")
+  print(metrics)
+  csv_path = "%s.csv" % args.out_prefix
+  metrics.to_csv(csv_path)
+  L.info("Wrote decoding results to %s" % csv_path)
 
-  # # Save per-sentence outputs.
-  # predicted_ranks = list(itertools.chain.from_iterable(
-  #   [(subject, idx, rank) for idx, rank in subject_ranks]
-  #   for subject, subject_ranks in predicted_ranks.items()))
-  # predicted_ranks = pd.DataFrame(predicted_ranks, columns=["subject", "idx", "rank"]) \
-  #     .set_index(["subject", "idx"])
-  # predicted_ranks.to_csv(args.out_prefix + ".pred.csv")
+  # Save per-sentence outputs.
+  npy_path = "%s.pred.npy" % args.out_prefix
+  np.save(npy_path, decoder_predictions)
+  L.info("Wrote decoder predictions to %s" % npy_path)
 
 
 if __name__ == '__main__':
