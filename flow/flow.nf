@@ -1,11 +1,11 @@
 #!/usr/bin/env nextflow
 
-params.bert_dir = "bert"
+params.bert_dir = "$baseDir/bert"
 params.bert_base_model = "uncased_L-12_H-768_A-12"
-params.glue_base_dir = "glue"
+params.glue_base_dir = "$baseDir/glue"
 
-params.brain_data_path = "data/brains"
-params.sentences_path = "data/stimuli_384sentences.txt"
+params.brain_data_path = "$baseDir/data/brains"
+params.sentences_path = "$baseDir/data/stimuli_384sentences.txt"
 
 // Finetune parameters
 params.finetune_steps = 250
