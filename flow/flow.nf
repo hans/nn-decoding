@@ -1,11 +1,11 @@
 #!/usr/bin/env nextflow
 
-params.bert_dir = "~/om2/others/bert"
+params.bert_dir = "bert"
 params.bert_base_model = "uncased_L-12_H-768_A-12"
-params.glue_base_dir = "~/om2/data/GLUE"
+params.glue_base_dir = "glue"
 
-params.brain_data_path = "$baseDir/data/brains"
-params.sentences_path = "$baseDir/data/stimuli_384sentences.txt"
+params.brain_data_path = "data/brains"
+params.sentences_path = "data/stimuli_384sentences.txt"
 
 // Finetune parameters
 params.finetune_steps = 250
@@ -39,6 +39,7 @@ process finetune {
 
     tag "$glue_task"
 
+    script:
     bert_base_dir = [params.bert_dir, params.bert_base_model].join("/")
 
     """
@@ -77,6 +78,7 @@ process extractEncoding {
 
     tag "${ckpt_id[0]}-${ckpt_id[1]}"
 
+    script:
     bert_base_dir = [params.bert_dir, params.bert_base_model].join("/")
 
     """
@@ -120,6 +122,7 @@ encodings.combine(brain_images).set { encodings_brains }
 process learnDecoder {
     label "om_big"
     publishDir "${params.outdir}/${params.publishDirPrefix}/decoders"
+    cpus params.decoder_n_jobs
 
     input:
     set model_id, file(encoding), file(brain_dir) from encodings_brains
@@ -133,6 +136,7 @@ process learnDecoder {
 #!/bin/bash
 source activate decoding
 python src/learn_decoder.py ${params.sentences_path} ${brain_dir} ${encoding} \
+    --n_jobs ${params.decoder_n_jobs} \
     --out_prefix "${model_id[0]}-${model_id[1]}-${brain_dir.name}" \
     --encoding_project ${decoder_projection}
     """
