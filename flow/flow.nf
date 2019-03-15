@@ -1,12 +1,15 @@
 #!/usr/bin/env nextflow
 
-params.bert_dir = "$baseDir/bert"
+// baseDir as prepared by nextflow references a particular fs share, which is
+// not good
+omBaseDir = "/om2/user/jgauthie/scratch/nn-decoding"
+params.bert_dir = "~/om2/others/bert"
 params.bert_base_model = "uncased_L-12_H-768_A-12"
-params.glue_base_dir = "$baseDir/tasks/glue"
-params.squad_dir = "$baseDir/tasks/squad"
+params.glue_base_dir = "~/om2/data/GLUE"
+params.squad_dir = "/om/data/public/jgauthie/squad-2.0"
 
-params.brain_data_path = "$baseDir/data/brains"
-params.sentences_path = "$baseDir/data/stimuli_384sentences.txt"
+params.brain_data_path = "$omBaseDir/data/brains"
+params.sentences_path = "$omBaseDir/data/sentences/stimuli_384sentences.txt"
 
 // Finetune parameters
 params.finetune_steps = 250
@@ -15,15 +18,13 @@ params.finetune_learning_rate = "2e-5"
 params.finetune_squad_learning_rate = "3e-5"
 // CLI params shared across GLUE and SQuAD tasks
 bert_base_dir = [params.bert_dir, params.bert_base_model].join("/")
-finetune_cli_params = """
-    --do_train=true --do_eval=true \
+finetune_cli_params = """--do_train=true --do_eval=true \
     --bert_config_file=${bert_base_dir}/bert_config.json \
     --vocab_file=${bert_base_dir}/vocab.txt \
-    --init_ckpt=${bert_base_dir}/model.ckpt \
+    --init_checkpoint=${bert_base_dir}/model.ckpt \
     --num_train_steps=${params.finetune_steps} \
     --save_checkpoint_steps=${params.finetune_checkpoint_steps} \
-    --output_dir . \
-"""
+    --output_dir ."""
 
 // Encoding extraction parameters.
 params.extract_encoding_layers = "-1"
@@ -31,6 +32,7 @@ params.extract_encoding_layers = "-1"
 // Decoder learning parameters
 params.decoder_projection = 256
 params.decoder_n_jobs = 5
+params.decoder_n_folds = 8
 
 params.outdir = "output"
 params.publishDirPrefix = "${workflow.runName}"
@@ -55,7 +57,7 @@ process finetuneGlue {
     """
 #!/bin/bash
 python ${params.bert_dir}/run_classifier.py --task_name=$glue_task \
-    ${finetune_cli_params}
+    ${finetune_cli_params} \
     --data_dir=${params.glue_base_dir}/${glue_task} \
     --learning_rate ${params.finetune_learning_rate} \
     --max_seq_length 128 \
@@ -68,13 +70,14 @@ process finetuneSquad {
     publishDir "${params.outdir}/${params.publishDirPrefix}/bert"
 
     output:
-    set "SQuAD", "model.ckpt-*" into model_ckpt_files_squad
+    set val("SQuAD"), "model.ckpt-*" into model_ckpt_files_squad
 
     tag "SQuAD"
 
     """
 #!/bin/bash
-python ${params.bert_dir}/run_squad.py
+python ${params.bert_dir}/run_squad.py \
+    ${finetune_cli_params} \
     --train_file=${params.squad_dir}/train-v2.0.json \
     --predict_file=${params.squad_dir}/dev-v2.0.json \
     --data_dir=${params.squad_dir} \
@@ -86,24 +89,25 @@ python ${params.bert_dir}/run_squad.py
     """
 }
 
-finetuneSquad.into { finetuneSquadForEval, finetuneSquadForExtraction }
+model_ckpt_files_squad.into { squad_for_eval; squad_for_extraction }
 
 // SQuAD training does not support online evaluation -- run separately on the
 // saved checkpoints
 // Group SQuAD checkpoints based on their prefix.
-fientuneSquadForEval.flatMap { ckpt_id -> ckpt_id[1].collect {
+squad_for_eval.flatMap { ckpt_id -> ckpt_id[1].collect {
     file -> tuple((file.name =~ /^model.ckpt-(\d+)/)[0][1], file)
-} }.groupTuple().set { squadEvalCheckpoints }
+} }.groupTuple().set { squad_eval_ckpts }
 process evalSquad {
     label "om_gpu_tf"
     publishDir "${params.outdir}/${params.publishDirPrefix}/eval_squad"
 
     input:
-    set ckpt_step, file(ckpt_files) from squadEvalCheckpoints
+    set ckpt_step, file(ckpt_files) from squad_eval_ckpts
 
     output:
-    set ckpt_step[1], "results.json" into squadEvalResults
+    set val("step ${ckpt_step}"), file("predictions.json"), file("null_odds.json"), file("results.json") into squad_eval_results
 
+    script:
     """
 #!/bin/bash
 
@@ -122,11 +126,11 @@ python ${params.bert_dir}/run_squad.py --do_predict \
 
 # Evaluate using SQuAD tools.
 python ${params.squad_dir}/evaluate-v2.0.py ${params.squad_dir}/dev-v2.0.json \
-    predictions.json --na_prob_file null_odds.json > results.json
+    predictions.json --na-prob-file null_odds.json > results.json
     """
 }
 
-finetuneGlue.concat(finetuneSquadForExtraction).set { model_ckpt_files }
+model_ckpt_files_glue.concat(squad_for_extraction).set { model_ckpt_files }
 
 // Group model checkpoints based on their prefix.
 model_ckpt_files
@@ -154,7 +158,7 @@ python ${params.bert_dir}/extract_features.py \
     --output_file=encodings.jsonl \
     --vocab_file=${bert_base_dir}/vocab.txt \
     --bert_config_file=${bert_base_dir}/bert_config.json \
-    --init_checkpoint=${ckpt_id[0]} \
+    --init_checkpoint=model.ckpt-${ckpt_id[1]} \
     --layers="${params.extract_encoding_layers}" \
     --max_seq_length=128 \
     --batch_size=64
@@ -186,8 +190,10 @@ python ${params.bert_dir}/process_encodings.py \
 encodings.combine(brain_images).set { encodings_brains }
 
 process learnDecoder {
-    label "om_big"
+    label "om"
     publishDir "${params.outdir}/${params.publishDirPrefix}/decoders"
+    clusterOptions "${baseClusterOptions} -c ${params.decoder_n_jobs}"
+    memory "8 GB"
     cpus params.decoder_n_jobs
 
     input:
@@ -201,9 +207,11 @@ process learnDecoder {
     """
 #!/bin/bash
 source activate decoding
-python src/learn_decoder.py ${params.sentences_path} ${brain_dir} ${encoding} \
+python ${omBaseDir}/src/learn_decoder.py ${params.sentences_path} \
+    ${brain_dir} ${encoding} \
     --n_jobs ${params.decoder_n_jobs} \
+    --n_folds ${params.decoder_n_folds} \
     --out_prefix "${model_id[0]}-${model_id[1]}-${brain_dir.name}" \
-    --encoding_project ${decoder_projection}
+    --encoding_project ${params.decoder_projection}
     """
 }
