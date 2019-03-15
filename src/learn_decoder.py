@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO)
 L = logging.getLogger(__name__)
 
 # Candidate ridge regression regularization parameters.
-ALPHAS = [1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e1, 1e2, 1e3]
+ALPHAS = [1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e1]
 
 
 def eval_ranks(decoder, X_test, Y_test_idxs, encodings_normed):
@@ -75,19 +75,15 @@ def main(args):
 
   # Load subject data.
   subject = args.subject_name or args.brain_path.name
-  subject_data = scipy.io.loadmat(str(args.brain_path / args.mat_name))
-  L.info("Loaded subject %s data.", subject)
-
-  subject_images = subject_data["examples"]
+  L.info("Loading subject %s data.", subject)
+  subject_images = util.load_brain_data(str(args.brain_path / args.mat_name),
+                                        project=args.image_project)
   assert len(subject_images) == len(sentences)
-  subject_images = PCA(256).fit_transform(subject_images)
 
   ######### Prepare learning setup.
 
   # Track within-subject performance.
-  index = pd.MultiIndex.from_product(([subject], np.arange(args.n_folds)),
-                                     names=("subject", "metric"))
-  metrics = pd.DataFrame(columns=["mse"], index=index)
+  metrics = pd.DataFrame(columns=["mse", "r2"])
 
   # Prepare nested CV.
   # Inner CV is responsible for hyperparameter optimization;
@@ -97,8 +93,10 @@ def main(args):
   outer_cv = KFold(n_splits=args.n_folds, shuffle=True, random_state=state)
 
   # Final data prep: normalize.
-  X = subject_images / np.linalg.norm(subject_images, axis=1, keepdims=True)
-  Y = encodings / np.linalg.norm(encodings, axis=1, keepdims=True)
+  X = subject_images - subject_images.mean(axis=0)
+  X = X / np.linalg.norm(subject_images, axis=1, keepdims=True)
+  Y = encodings - encodings.mean(axis=0)
+  Y = Y / np.linalg.norm(encodings, axis=1, keepdims=True)
 
   # # Prepare scoring function for outer CV.
   # def scoring_fn(decoder, idxs, _):
@@ -128,7 +126,6 @@ def main(args):
 
   ######### Save results.
 
-  print(metrics)
   csv_path = "%s.csv" % args.out_prefix
   metrics.to_csv(csv_path)
   L.info("Wrote decoding results to %s" % csv_path)
@@ -146,6 +143,7 @@ if __name__ == '__main__':
   p.add_argument("brain_path", type=Path)
   p.add_argument("encoding_paths", type=Path, nargs="+")
   p.add_argument("--encoding_project", type=int)
+  p.add_argument("--image_project", type=int)
   p.add_argument("--n_folds", type=int, default=12)
   p.add_argument("--mat_name", default="examples_384sentences.mat")
   p.add_argument("--out_prefix", default="decoder_perf")

@@ -31,6 +31,7 @@ params.extract_encoding_layers = "-1"
 
 // Decoder learning parameters
 params.decoder_projection = 256
+params.brain_projection = 8192
 params.decoder_n_jobs = 5
 params.decoder_n_folds = 8
 
@@ -187,8 +188,6 @@ python ${params.bert_dir}/process_encodings.py \
     """
 }
 
-encodings.combine(brain_images).set { encodings_brains }
-
 process learnDecoder {
     label "om"
     publishDir "${params.outdir}/${params.publishDirPrefix}/decoders"
@@ -200,9 +199,9 @@ process learnDecoder {
     set model_id, file(encoding), file(brain_dir) from encodings_brains
 
     output:
-    file "${model_id[0]}-${model_id[1]}-${brain_dir.name}*"
+    file "${model_id[0]}-${model_id[1]}-*"
 
-    tag "${model_id[0]}-${model_id[1]}-${brain_dir.name}"
+    tag "${model_id[0]}-${model_id[1]}"
 
     """
 #!/bin/bash
@@ -212,6 +211,7 @@ python ${omBaseDir}/src/learn_decoder.py ${params.sentences_path} \
     --n_jobs ${params.decoder_n_jobs} \
     --n_folds ${params.decoder_n_folds} \
     --out_prefix "${model_id[0]}-${model_id[1]}-${brain_dir.name}" \
-    --encoding_project ${params.decoder_projection}
+    --encoding_project ${params.decoder_projection} \
+    --image_project ${params.brain_projection}
     """
 }

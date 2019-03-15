@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import scipy.io as io
 import scipy.stats as st
 from sklearn.decomposition import PCA
 
@@ -44,6 +45,22 @@ def load_encodings(paths, project=None):
 
   encodings = np.concatenate(encodings, axis=1)
   return encodings
+
+
+def load_brain_data(path, project=None):
+  subject_data = io.loadmat(path)
+  subject_images = subject_data["examples"]
+  if project is not None:
+    L.info("Projecting brain images to dimension %i with PCA", project)
+    if subject_images.shape[1] < project:
+      L.warn("Images are already below requested dimensionality: %i < %i"
+             % (subject_images.shape[1], project))
+    else:
+      pca = PCA(project).fit(subject_images)
+      L.info("PCA explained variance: %f", sum(pca.explained_variance_ratio_) * 100)
+      subject_images = pca.transform(subject_images)
+
+  return subject_images
 
 
 def load_decoding_perf(name, results_path, ax=None):

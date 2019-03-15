@@ -9,10 +9,18 @@
 source /etc/profile.d/modules.sh
 source ~/.profile
 source activate decoding
-echo "Learning decoder with encoding $encoding"
-python src/learn_decoder.py data/sentences/stimuli_384sentences.txt data/brains/${brain} \
-    models/bert/${encoding}-${SLURM_ARRAY_TASK_ID}.npy \
-    --encoding_project 256 \
-    --n_jobs ${SLURM_JOB_CPUS_PER_NODE} \
-    --n_folds 8 \
-    --out_prefix models/decoders/${encoding}
+
+ENCODING_NAME="${encoding}-${SLURM_ARRAY_TASK_ID}"
+
+echo "Learning decoder with encoding $ENCODING_NAME"
+
+for subject_dir in data/brains/*; do
+    subject=`basename "$subject_dir"`
+    python src/learn_decoder.py data/sentences/stimuli_384sentences.txt ${subject_dir} \
+        models/bert/${ENCODING_NAME}.npy \
+        --encoding_project 256 \
+        --image_project 8192 \
+        --n_jobs ${SLURM_JOB_CPUS_PER_NODE} \
+        --n_folds 8 \
+        --out_prefix models/decoders/${encoding}-${subject}
+done
