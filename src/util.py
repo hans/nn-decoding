@@ -6,6 +6,7 @@ from collections import defaultdict
 import itertools
 import logging
 from pathlib import Path
+import re
 
 import matplotlib
 matplotlib.use("Agg")
@@ -64,30 +65,24 @@ def load_brain_data(path, project=None):
   return subject_images
 
 
-def load_decoding_perf(name, results_path, ax=None):
+def load_decoding_perfs(results_dir, ax=None):
     """
-    Load and render a DataFrame describing decoding performance for a particular representation.
+    Load and render a DataFrame describing decoding performance across models,
+    model runs, and subjects.
 
     Args:
-        name: Name (for rendering)
-        results_path: path to CSV decoding results
+        results_dir: path to directory containing CSV decoder results
     """
-    df = pd.read_csv(results_path, index_col=[0, 1])
+    decoder_re = re.compile(r"\.(\w+)-run(\d+)-(\d+)-([\w\d]+)\.csv$")
 
-    if ax is not None:
-        sns.violinplot(x="subject", y="value", hue="type",
-                       data=df.reset_index().melt(id_vars=["subject", "type"],
-                                                  value_vars=["mar_fold_%i" % i for i in range(18)]),
-                       ax=ax)
-        ax.set_ylim((40, 260))
-        ax.set_ylabel("average rank")
-        ax.set_title("%s: Within-subject MAR" % name)
+    results = {}
+    result_keys = ["model", "run", "step", "subject"]
+    for csv in Path(results_dir).glob("*.csv"):
+      model, run, step, subject = decoder_re.findall(csv.name)[0]
+      df = pd.read_csv(csv, usecols=["mse", "r2"])
+      results[model, int(run), int(step), subject] = df
 
-    subj_perf = df.groupby("type").apply(
-        lambda sub_df: sub_df.reset_index(level=0, drop=True).T.agg(["mean", "sem"]))
-    #subj_perf.plot.bar(title="%s: Within-subject MAR" % name)
-
-    return subj_perf
+    return pd.concat(results, names=result_keys)
 
 
 def eval_ranks(Y_pred, idxs, encodings, encodings_normed=True):
