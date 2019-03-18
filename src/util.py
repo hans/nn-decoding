@@ -7,7 +7,8 @@ import itertools
 import logging
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use("Agg")
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -87,6 +88,49 @@ def load_decoding_perf(name, results_path, ax=None):
     #subj_perf.plot.bar(title="%s: Within-subject MAR" % name)
 
     return subj_perf
+
+
+def eval_ranks(Y_pred, idxs, encodings, encodings_normed=True):
+  """
+  Run a rank evaluation on predicted encodings `Y_pred` with dataset indices
+  `idxs`.
+
+  Args:
+    Y_pred: `N_test * n_dim`-matrix of predicted encodings for some
+      `N_test`-subset of sentences
+    idxs: `N_test`-length array of dataset indices generating each of `Y_pred`
+    encodings: `M * n_dim`-matrix of dataset encodings. The perfect decoder
+      would predict `Y_pred[idxs] == encoding[idxs]`.
+
+  Returns:
+    ranks: `N_test * M` integer matrix. Each row specifies a
+      ranking over sentences computed using the decoding model, given the
+      brain image corresponding to each row of Y_test_idxs.
+    rank_of_correct: `N_test` array indicating the rank of the target
+      concept for each test input.
+  """
+  N_test = len(Y_pred)
+  assert N_test == len(idxs)
+
+  # TODO implicitly coupled to decoder normalization -- best to factor this
+  # out!
+  if encodings_normed:
+    Y_pred -= Y_pred.mean(axis=0)
+    Y_pred /= np.linalg.norm(Y_pred, axis=1, keepdims=True)
+
+  # For each Y_pred, evaluate rank of corresponding Y_test example among the
+  # entire collection of Ys (not just Y_test), where rank is established by
+  # cosine distance.
+  # n_Y_test * n_sentences
+  similarities = np.dot(Y_pred, encodings.T)
+
+  # Calculate distance ranks across rows.
+  orders = (-similarities).argsort(axis=1)
+  ranks = orders.argsort(axis=1)
+  # Find the rank of the desired vectors.
+  ranks_test = ranks[np.arange(len(idxs)), idxs]
+
+  return ranks, ranks_test
 
 
 def wilcoxon_rank_preds(models, correct_bonferroni=True, pairs=None):

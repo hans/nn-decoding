@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 
-#SBATCH --mem=4G
-#SBATCH -t 0-1
+#SBATCH --mem=8G
+#SBATCH -t 0-5
 #SBATCH -c 3
 #SBATCH --qos=cpl
 #SBATCH -a 5-250:5%1
@@ -19,8 +19,8 @@ for subject_dir in data/brains/*; do
     python src/learn_decoder.py data/sentences/stimuli_384sentences.txt ${subject_dir} \
         models/bert/${ENCODING_NAME}.npy \
         --encoding_project 256 \
-        --image_project 8192 \
+        --image_project 2048 \
         --n_jobs ${SLURM_JOB_CPUS_PER_NODE} \
         --n_folds 8 \
-        --out_prefix models/decoders/${encoding}-${subject}
+        --out_prefix models/decoders/${ENCODING_NAME}-${subject}
 done

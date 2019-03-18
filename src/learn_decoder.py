@@ -29,39 +29,6 @@ L = logging.getLogger(__name__)
 ALPHAS = [1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e1]
 
 
-def eval_ranks(decoder, X_test, Y_test_idxs, encodings_normed):
-  """
-  Evaluate a trained decoder, predicting the concepts associated with test
-  imaging data.
-
-  Returns:
-    ranks: len(Y_test_idxs) * len(Y) integer matrix. Each row specifies a
-      ranking over sentences computed using the decoding model, given the
-      brain image corresponding to each row of Y_test_idxs.
-    rank_of_correct: len(Y_test_idxs) array indicating the rank of the target
-      concept for each test input.
-  """
-  N_test = len(X_test)
-  assert N_test == len(Y_test_idxs)
-
-  Y_pred = decoder.predict(X_test)
-
-  # For each Y_pred, evaluate rank of corresponding Y_test example among the
-  # entire collection of Ys (not just Y_test), where rank is established by
-  # cosine distance.
-  Y_pred /= np.linalg.norm(Y_pred, axis=1, keepdims=True)
-  # n_Y_test * n_sentences
-  similarities = np.dot(Y_pred, encodings_normed.T)
-
-  # Calculate distance ranks across rows.
-  orders = (-similarities).argsort(axis=1)
-  ranks = orders.argsort(axis=1)
-  # Find the rank of the desired vectors.
-  ranks_test = ranks[np.arange(len(Y_test_idxs)), Y_test_idxs]
-
-  return ranks, rank_test
-
-
 def main(args):
   print(args)
 
@@ -94,22 +61,9 @@ def main(args):
 
   # Final data prep: normalize.
   X = subject_images - subject_images.mean(axis=0)
-  X = X / np.linalg.norm(subject_images, axis=1, keepdims=True)
+  X = X / np.linalg.norm(X, axis=1, keepdims=True)
   Y = encodings - encodings.mean(axis=0)
-  Y = Y / np.linalg.norm(encodings, axis=1, keepdims=True)
-
-  # # Prepare scoring function for outer CV.
-  # def scoring_fn(decoder, idxs, _):
-  #   """
-  #   Evaluate a learned decoder on test data, given indices of test data in the
-  #   outer matrix.
-
-  #   Returns:
-  #     avg_rank: Average distance rank of ground-truth sentence from predicted
-  #       sentence vectors across the test data.
-  #   """
-  #   ranks, ranks_test = eval_ranks(decoder, X[idxs], idxs, encodings_normed)
-  #   return ranks_test.mean()
+  Y = Y / np.linalg.norm(Y, axis=1, keepdims=True)
 
   ######## Run learning.
 
