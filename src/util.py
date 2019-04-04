@@ -65,7 +65,7 @@ def load_brain_data(path, project=None):
   return subject_images
 
 
-def load_decoding_perfs(results_dir, ax=None):
+def load_decoding_perfs(results_dir, glob_prefix=None):
     """
     Load and render a DataFrame describing decoding performance across models,
     model runs, and subjects.
@@ -77,12 +77,18 @@ def load_decoding_perfs(results_dir, ax=None):
 
     results = {}
     result_keys = ["model", "run", "step", "subject"]
-    for csv in Path(results_dir).glob("*.csv"):
+    for csv in Path(results_dir).glob("%s*.csv" % (glob_prefix or "")):
       model, run, step, subject = decoder_re.findall(csv.name)[0]
       df = pd.read_csv(csv, usecols=["mse", "r2"])
       results[model, int(run), int(step), subject] = df
-
-    return pd.concat(results, names=result_keys)
+    
+    if len(results) == 0:
+        raise ValueError("No valid csv outputs found.")
+    
+    ret = pd.concat(results, names=result_keys)
+    # drop irrelevant CSV row ID level
+    ret.index = ret.index.droplevel(-1)
+    return ret
 
 
 def eval_ranks(Y_pred, idxs, encodings, encodings_normed=True):
@@ -190,7 +196,7 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
         events_file = next(savedir.glob("events.*"))
     except StopIteration:
         # no events data -- skip
-        print("Missing training events file in savedir: %s", savedir)
+        print("Missing training events file in savedir:", savedir)
         pass
     else:
         total_global_norm = 0.
@@ -224,7 +230,7 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
         eval_events_file = next(savedir.glob("eval/events.*"))
     except StopIteration:
         # no eval events data -- skip
-        print("Missing eval events data in savedir: %s" % savedir)
+        print("Missing eval events data in savedir:", savedir)
         pass
     else:
         tags = set()
