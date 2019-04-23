@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 
 import matplotlib
-matplotlib.use("Agg")
+matplotlib.use("Agg", warn=False)
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -89,6 +89,25 @@ def load_decoding_perfs(results_dir, glob_prefix=None):
     # drop irrelevant CSV row ID level
     ret.index = ret.index.droplevel(-1)
     return ret
+
+
+def load_decoding_preds(results_dir, glob_prefix=None):
+    """
+    Load decoder predictions into a dictionary organized by decoder properties:
+    decoder target model, target model run, target model run training step,
+    and source subject image.
+    """
+    decoder_re = re.compile(r"\.(\w+)-run(\d+)-(\d+)-([\w\d]+)\.pred\.npy$")
+    
+    results = {}
+    for npy in Path(results_dir).glob("%s*.pred.npy" % (glob_prefix or "")):
+        model, run, step, subject = decoder_re.findall(npy.name)[0]
+        results[model, int(run), int(step), subject] = np.load(npy)
+        
+    if len(results) == 0:
+        raise ValueError("No valid npy pred files found.")
+        
+    return results
 
 
 def eval_ranks(Y_pred, idxs, encodings, encodings_normed=True):
