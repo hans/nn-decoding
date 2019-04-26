@@ -261,6 +261,8 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
                     eval_loss = v.simple_value
                 elif v.tag == "eval_accuracy":
                     eval_accuracy = v.simple_value
+                elif v.tag == "masked_lm_accuracy":
+                    eval_accuracy = v.simple_value
 
             if checkpoint_steps is None or e.step in checkpoint_steps:
                 ret["steps"][e.step].update({
