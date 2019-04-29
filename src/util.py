@@ -16,6 +16,7 @@ import seaborn as sns
 import scipy.io as io
 import scipy.stats as st
 from sklearn.decomposition import PCA
+from tqdm import tqdm
 
 L = logging.getLogger(__name__)
 
@@ -77,7 +78,8 @@ def load_decoding_perfs(results_dir, glob_prefix=None):
 
     results = {}
     result_keys = ["model", "run", "step", "subject"]
-    for csv in Path(results_dir).glob("%s*.csv" % (glob_prefix or "")):
+    for csv in tqdm(list(Path(results_dir).glob("%s*.csv" % (glob_prefix or ""))),
+                    desc="Loading perf files"):
       model, run, step, subject = decoder_re.findall(csv.name)[0]
       df = pd.read_csv(csv, usecols=["mse", "r2"])
       results[model, int(run), int(step), subject] = df
@@ -100,7 +102,8 @@ def load_decoding_preds(results_dir, glob_prefix=None):
     decoder_re = re.compile(r"\.(\w+)-run(\d+)-(\d+)-([\w\d]+)\.pred\.npy$")
     
     results = {}
-    for npy in Path(results_dir).glob("%s*.pred.npy" % (glob_prefix or "")):
+    for npy in tqdm(list(Path(results_dir).glob("%s*.pred.npy" % (glob_prefix or ""))),
+                    desc="Loading prediction files"):
         model, run, step, subject = decoder_re.findall(npy.name)[0]
         results[model, int(run), int(step), subject] = np.load(npy)
         
