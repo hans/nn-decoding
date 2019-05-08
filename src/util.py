@@ -81,7 +81,13 @@ def load_decoding_perfs(results_dir, glob_prefix=None):
     for csv in tqdm(list(Path(results_dir).glob("%s*.csv" % (glob_prefix or ""))),
                     desc="Loading perf files"):
       model, run, step, subject = decoder_re.findall(csv.name)[0]
-      df = pd.read_csv(csv, usecols=["mse", "r2"])
+      try:
+        df = pd.read_csv(csv, usecols=["mse", "r2",
+                                       "rank_median", "rank_mean",
+                                       "rank_min", "rank_max"])
+      except ValueError:
+        continue
+        
       results[model, int(run), int(step), subject] = df
     
     if len(results) == 0:

@@ -78,6 +78,11 @@ def main(args):
   metrics.loc[subject, "mse"] = mean_squared_error(Y, decoder_predictions)
   metrics.loc[subject, "r2"] = r2_score(Y, decoder_predictions)
 
+  # Rank evaluation.
+  _, rank_of_correct = util.eval_ranks(decoder_predictions, np.arange(len(decoder_predictions)), Y)
+  rank_stats = pd.Series(rank_of_correct).agg(["mean", "median", "min", "max"])
+  metrics = metrics.join(pd.concat([rank_stats], keys=[subject]).unstack().rename(columns=lambda c: "rank_%s" % c))
+
   ######### Save results.
 
   csv_path = "%s.csv" % args.out_prefix
