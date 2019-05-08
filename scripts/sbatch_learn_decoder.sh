@@ -19,7 +19,7 @@ for subject_dir in data/brains/*; do
     python src/learn_decoder.py data/sentences/stimuli_384sentences.txt ${subject_dir} \
         models/bert/${ENCODING_NAME}.npy \
         --encoding_project 256 \
-        --image_project 2048 \
+        --image_project 256 \
         --n_jobs ${SLURM_JOB_CPUS_PER_NODE} \
         --n_folds 8 \
         --out_prefix models/decoders/${ENCODING_NAME}-${subject}
