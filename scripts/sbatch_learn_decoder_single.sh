@@ -4,13 +4,10 @@
 #SBATCH -t 0-5
 #SBATCH -c 3
 #SBATCH --qos=cpl
-#SBATCH -a 5-250:5%4
 
 source /etc/profile.d/modules.sh
 source ~/.profile
 source activate decoding
-
-ENCODING_NAME="${encoding}-${SLURM_ARRAY_TASK_ID}"
 
 echo "Learning decoder with encoding $ENCODING_NAME"
 

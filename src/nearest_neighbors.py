@@ -6,15 +6,11 @@ from scipy.spatial import distance
 import util
 
 
-def eval_quant(encoding):
-  # Compute pairwise cosine distances.
-  dists = distance.pdist(encoding, metric="cosine")
-    
-  mean, std = dists.mean(), dists.std()
-#   print("Average pairwise distance:", mean)
-#   print("Stdev pairwise distance:", std)
+def eval_quant(encoding, metric="cosine"):
+  # Compute pairwise cosine similarities.
+  similarities = 1 - distance.pdist(encoding, metric=metric)
 
-  return dists, mean, std
+  return similarities
 
 
 def main(args):

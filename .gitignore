@@ -10,3 +10,5 @@ flow/bert
 flow/data
 flow/tasks
 work
+slurm-*
+encodings.*
