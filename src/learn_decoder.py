@@ -21,6 +21,7 @@ from scipy.spatial import distance
 from tqdm import tqdm
 
 import util
+import select_roi
 
 logging.basicConfig(level=logging.INFO)
 L = logging.getLogger(__name__)
@@ -28,25 +29,7 @@ L = logging.getLogger(__name__)
 # Candidate ridge regression regularization parameters.
 ALPHAS = [1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e1]
 
-
-def main(args):
-  print(args)
-
-  sentences = util.load_sentences(args.sentences_path)
-  encodings = util.load_encodings(args.encoding_paths, project=args.encoding_project)
-  encodings_normed = encodings / np.linalg.norm(encodings, axis=1, keepdims=True)
-
-  assert len(encodings) == len(sentences)
-
-  ######### Prepare to process subject.
-
-  # Load subject data.
-  subject = args.subject_name or args.brain_path.name
-  L.info("Loading subject %s data.", subject)
-  subject_images = util.load_brain_data(str(args.brain_path / args.mat_name),
-                                        project=args.image_project)
-  assert len(subject_images) == len(sentences)
-
+def decode(encodings, subject_images, subject, args, roi_prefix=''):
   ######### Prepare learning setup.
 
   # Track within-subject performance.
@@ -84,15 +67,44 @@ def main(args):
   metrics = metrics.join(pd.concat([rank_stats], keys=[subject]).unstack().rename(columns=lambda c: "rank_%s" % c))
 
   ######### Save results.
-
-  csv_path = "%s.csv" % args.out_prefix
+  prefix = args.out_prefix if not roi_prefix else args.out_prefix + '.' + roi_prefix
+  csv_path = "%s.csv" % prefix
   metrics.to_csv(csv_path)
   L.info("Wrote decoding results to %s" % csv_path)
 
   # Save per-sentence outputs.
-  npy_path = "%s.pred.npy" % args.out_prefix
+  npy_path = "%s.pred.npy" % prefix
   np.save(npy_path, decoder_predictions)
   L.info("Wrote decoder predictions to %s" % npy_path)
+
+def main(args):
+  print(args)
+
+  sentences = util.load_sentences(args.sentences_path)
+  encodings = util.load_encodings(args.encoding_paths, project=args.encoding_project)
+  encodings_normed = encodings / np.linalg.norm(encodings, axis=1, keepdims=True)
+
+  assert len(encodings) == len(sentences)
+
+  ######### Prepare to process subject.
+
+  # Load subject data.
+  subject = args.subject_name or args.brain_path.name
+  L.info("Loading subject %s data.", subject)
+  if args.by_roi:
+    subj_dict = util.load_full_brain_data(str(args.brain_path / args.mat_name))
+    anat_to_images = select_roi.group_by_roi(subj_dict)
+    assert all(len(images) == len(sentences) for _, images in anat_to_images.items())
+    for anat, subject_images in anat_to_images.items():
+      L.info("Learning decoder for %s" % anat)
+      decode(encodings, subject_images, subject, args, roi_prefix=anat)
+  else:
+    subject_images = util.load_brain_data(str(args.brain_path / args.mat_name),
+                                          project=args.image_project)
+    assert len(subject_images) == len(sentences)
+    decode(encodings, subject_images, subject, args)
+
+  
 
 
 if __name__ == '__main__':
@@ -101,6 +113,7 @@ if __name__ == '__main__':
   p.add_argument("sentences_path", type=Path)
   p.add_argument("brain_path", type=Path)
   p.add_argument("encoding_paths", type=Path, nargs="+")
+  p.add_argument("--by_roi", action="store_true")
   p.add_argument("--encoding_project", type=int)
   p.add_argument("--image_project", type=int)
   p.add_argument("--n_folds", type=int, default=12)

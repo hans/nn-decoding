@@ -1,0 +1,27 @@
+#!/bin/bash
+#SBATCH --qos=cpl
+#SBATCH -J roi_decoder
+#SBATCH -n 1 # one core
+#SBATCH -N 1 # on one node
+#SBATCH --time=0-5:00 # Running time
+#SBATCH --mem=8000 # Memory request
+#SBATCH -o logs/roi_decoder_%a.out # Standard output
+#SBATCH -e logs/roi_decoder_%a.err # Standard error
+#SBATCH --mail-user=jennhu@mit.edu # -- use this to send an automated email when:
+#SBATCH --mail-type=end            # -- your job completes successfully
+#SBATCH --mail-type=fail           # -- or if your job fails
+
+source activate neural-nlp
+cd ../src
+
+MODEL="baseline"
+ENCODINGS="../encodings/384sentences.${MODEL}.npy"
+SUBJECTS=($(ls -1 ../data/brains))
+SUBJECT=${SUBJECTS[$SLURM_ARRAY_TASK_ID]}
+
+python learn_decoder.py \
+    ../data/sentences/stimuli_384sentences.txt ../data/brains/${SUBJECT} ${ENCODINGS} \
+    --out_prefix ../results/perf.384sentences.${MODEL}.${SUBJECT} \
+    --by_roi
+
+source deactivate

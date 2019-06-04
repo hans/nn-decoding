@@ -12,7 +12,10 @@ import matplotlib
 matplotlib.use("Agg", warn=False)
 import numpy as np
 import pandas as pd
-import seaborn as sns
+try:
+    import seaborn as sns
+except ModuleNotFoundError:
+    pass
 import scipy.io as io
 import scipy.stats as st
 from sklearn.decomposition import PCA
@@ -49,6 +52,9 @@ def load_encodings(paths, project=None):
   encodings = np.concatenate(encodings, axis=1)
   return encodings
 
+def load_full_brain_data(path):
+  subject_data = loadmat('../data/brains/M08/examples_384sentences.mat')
+  return subject_data
 
 def load_brain_data(path, project=None):
   subject_data = io.loadmat(path)
@@ -280,3 +286,39 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
                 })
 
     return ret
+
+# helper functions for importing .mat files into Python
+# credit: https://stackoverflow.com/a/8832212
+
+def loadmat(filename):
+    '''
+    this function should be called instead of direct spio.loadmat
+    as it cures the problem of not properly recovering python dictionaries
+    from mat files. It calls the function check keys to cure all entries
+    which are still mat-objects
+    '''
+    data = io.loadmat(filename, struct_as_record=False, squeeze_me=True)
+    return _check_keys(data)
+
+def _check_keys(d):
+    '''
+    checks if entries in dictionary are mat-objects. If yes
+    todict is called to change them to nested dictionaries
+    '''
+    for key in d:
+        if isinstance(d[key], io.matlab.mio5_params.mat_struct):
+            d[key] = _todict(d[key])
+    return d        
+
+def _todict(matobj):
+    '''
+    A recursive function which constructs from matobjects nested dictionaries
+    '''
+    d = {}
+    for strg in matobj._fieldnames:
+        elem = matobj.__dict__[strg]
+        if isinstance(elem, io.matlab.mio5_params.mat_struct):
+            d[strg] = _todict(elem)
+        else:
+            d[strg] = elem
+    return d

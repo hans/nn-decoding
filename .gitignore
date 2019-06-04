@@ -5,8 +5,10 @@ encodings/*.npy
 .nextflow*
 data/brains/*
 data/sentences/*
+results/*
 
 flow/bert
 flow/data
 flow/tasks
 work
+scripts/logs/*
