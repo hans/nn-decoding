@@ -9,5 +9,5 @@ ZBNUMFILES=$(($NUMFILES - 1))
 
 # now submit to SLURM
 if [ $ZBNUMFILES -ge 0 ]; then
-sbatch --array=0-$ZBNUMFILES learn_decoders_roi.batch
+sbatch --array=0-$ZBNUMFILES learn_decoders_roi.batch $1
 fi

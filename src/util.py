@@ -56,6 +56,18 @@ def load_full_brain_data(path):
   subject_data = loadmat(path)
   return subject_data
 
+def project_roi_images(roi_images):
+    L.info("Original shape of images: {}".format(roi_images.shape))
+    dim = min(roi_images.shape)
+    pca = PCA(dim).fit(roi_images) 
+    while sum(pca.explained_variance_ratio_) > 0.95: 
+        dim = int(dim / 1.5)
+        pca = PCA(dim).fit(roi_images)
+    L.info("Projected to %d dimensions", dim)
+    L.info("PCA explained variance: %f", sum(pca.explained_variance_ratio_) * 100)
+    roi_images = pca.transform(roi_images)
+    return roi_images
+
 def load_brain_data(path, project=None):
   subject_data = io.loadmat(path)
   subject_images = subject_data["examples"]

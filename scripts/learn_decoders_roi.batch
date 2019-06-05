@@ -5,8 +5,8 @@
 #SBATCH -N 1 # on one node
 #SBATCH --time=0-5:00 # Running time
 #SBATCH --mem=8000 # Memory request
-#SBATCH -o logs/roi_decoder_%a.out # Standard output
-#SBATCH -e logs/roi_decoder_%a.err # Standard error
+#SBATCH -o logs/roi_decoder_%j_%a.out # Standard output
+#SBATCH -e logs/roi_decoder_%j_%a.err # Standard error
 #SBATCH --mail-user=jennhu@mit.edu # -- use this to send an automated email when:
 #SBATCH --mail-type=end            # -- your job completes successfully
 #SBATCH --mail-type=fail           # -- or if your job fails
@@ -14,14 +14,16 @@
 source activate neural-nlp
 cd ../src
 
-MODEL="baseline"
-ENCODINGS="../encodings/384sentences.${MODEL}.npy"
+ENCODING=$1
+ENCODING_PREFIX="/om2/user/jgauthie/others/bert/encodings.finetune-250.uncased_L-12_H-768_A-12."
+ENCODING_PATH=${ENCODING_PREFIX}${ENCODING}-run1-250.npy
 SUBJECTS=($(ls -1 ../data/brains))
 SUBJECT=${SUBJECTS[$SLURM_ARRAY_TASK_ID]}
 
+# mkdir ../results/${ENCODING}
 python learn_decoder.py \
-    ../data/sentences/stimuli_384sentences.txt ../data/brains/${SUBJECT} ${ENCODINGS} \
-    --out_prefix ../results/perf.384sentences.${MODEL}.${SUBJECT} \
+    ../data/sentences/stimuli_384sentences.txt ../data/brains/${SUBJECT} ${ENCODING_PATH} \
+    --out_prefix ../results/${ENCODING}/perf.384sentences.${ENCODING}.${SUBJECT} \
     --by_roi
 
 source deactivate

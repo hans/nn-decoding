@@ -95,9 +95,10 @@ def main(args):
     subj_dict = util.load_full_brain_data(str(args.brain_path / args.mat_name))
     anat_to_images = select_roi.group_by_roi(subj_dict)
     assert all(len(images) == len(sentences) for _, images in anat_to_images.items())
-    for anat, subject_images in anat_to_images.items():
+    for anat, roi_images in anat_to_images.items():
       L.info("Learning decoder for %s" % anat)
-      decode(encodings, subject_images, subject, args, roi_prefix=anat)
+      roi_images = util.project_roi_images(roi_images)
+      decode(encodings, roi_images, subject, args, roi_prefix=anat)
   else:
     subject_images = util.load_brain_data(str(args.brain_path / args.mat_name),
                                           project=args.image_project)

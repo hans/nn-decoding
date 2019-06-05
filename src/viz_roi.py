@@ -30,7 +30,7 @@ def main():
             }
             data_dicts.append(data)
     data_df = pd.DataFrame(data_dicts)
-    metric = 'mse'
+    metric = 'rank_mean'
     plot(data_df, '../results/baseline_%s.png' % metric, metric=metric)
 
 if __name__ == '__main__':
