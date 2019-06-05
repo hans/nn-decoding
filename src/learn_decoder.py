@@ -8,6 +8,7 @@ from collections import defaultdict
 import itertools
 import logging
 from pathlib import Path
+import sys
 import time
 
 import numpy as np
@@ -42,11 +43,19 @@ def decode(encodings, subject_images, subject, args, roi_prefix=''):
   inner_cv = KFold(n_splits=args.n_folds, shuffle=True, random_state=state)
   outer_cv = KFold(n_splits=args.n_folds, shuffle=True, random_state=state)
 
-  # Final data prep: normalize.
-  X = subject_images - subject_images.mean(axis=0)
-  X = X / np.linalg.norm(X, axis=1, keepdims=True)
-  Y = encodings - encodings.mean(axis=0)
-  Y = Y / np.linalg.norm(Y, axis=1, keepdims=True)
+  # Final data prep.
+  if args.learn_encoder:
+    X, Y = encodings, subject_images
+  else:
+    X, Y = subject_images, encodings
+
+  X = X - X.mean(axis=0)
+  X /= np.linalg.norm(X, axis=1, keepdims=True)
+  Y = Y - Y.mean(axis=0)
+  Y /= np.linalg.norm(Y, axis=1, keepdims=True)
+
+  L.info("Running regression with n_samples: %i, n_features: %i, n_targets: %i" %
+         (X.shape[0], X.shape[1], Y.shape[1]))
 
   ######## Run learning.
 
@@ -80,6 +89,10 @@ def decode(encodings, subject_images, subject, args, roi_prefix=''):
 def main(args):
   print(args)
 
+  if args.learn_encoder and args.image_project is not None:
+    L.error("Encoder learning not supported with PCA projection on brain data.")
+    sys.exit(1)
+
   sentences = util.load_sentences(args.sentences_path)
   encodings = util.load_encodings(args.encoding_paths, project=args.encoding_project)
   encodings_normed = encodings / np.linalg.norm(encodings, axis=1, keepdims=True)
@@ -105,7 +118,7 @@ def main(args):
     assert len(subject_images) == len(sentences)
     decode(encodings, subject_images, subject, args)
 
-  
+
 
 
 if __name__ == '__main__':
@@ -114,6 +127,7 @@ if __name__ == '__main__':
   p.add_argument("sentences_path", type=Path)
   p.add_argument("brain_path", type=Path)
   p.add_argument("encoding_paths", type=Path, nargs="+")
+  p.add_argument("-e", "--learn_encoder", default=False, action="store_true")
   p.add_argument("--by_roi", action="store_true")
   p.add_argument("--encoding_project", type=int)
   p.add_argument("--image_project", type=int)
