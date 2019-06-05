@@ -53,7 +53,7 @@ def load_encodings(paths, project=None):
   return encodings
 
 def load_full_brain_data(path):
-  subject_data = loadmat('../data/brains/M08/examples_384sentences.mat')
+  subject_data = loadmat(path)
   return subject_data
 
 def load_brain_data(path, project=None):
