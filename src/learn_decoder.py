@@ -79,6 +79,7 @@ def decode(encodings, subject_images, subject, args, roi_prefix=''):
 
 def main(args):
   print(args)
+  assert not(args.by_roi and args.by_hemi)
 
   sentences = util.load_sentences(args.sentences_path)
   encodings = util.load_encodings(args.encoding_paths, project=args.encoding_project)
@@ -91,21 +92,22 @@ def main(args):
   # Load subject data.
   subject = args.subject_name or args.brain_path.name
   L.info("Loading subject %s data.", subject)
-  if args.by_roi:
+
+  # Whole-brain analysis
+  if args.anat_group is None:
+    subject_images = util.load_brain_data(str(args.brain_path / args.mat_name),
+                                          project=args.image_project)
+    assert len(subject_images) == len(sentences)
+    decode(encodings, subject_images, subject, args, roi_prefix='whole-brain%d' % args.image_project)
+  # Analysis by anatomical ROI or hemisphere
+  else:
     subj_dict = util.load_full_brain_data(str(args.brain_path / args.mat_name))
-    anat_to_images = select_roi.group_by_roi(subj_dict)
+    anat_to_images = select_roi.group_by_anat(subj_dict, group_by=args.anat_group)
     assert all(len(images) == len(sentences) for _, images in anat_to_images.items())
     for anat, roi_images in anat_to_images.items():
       L.info("Learning decoder for %s" % anat)
       roi_images = util.project_roi_images(roi_images)
       decode(encodings, roi_images, subject, args, roi_prefix=anat)
-  else:
-    subject_images = util.load_brain_data(str(args.brain_path / args.mat_name),
-                                          project=args.image_project)
-    assert len(subject_images) == len(sentences)
-    decode(encodings, subject_images, subject, args)
-
-  
 
 
 if __name__ == '__main__':
@@ -114,7 +116,7 @@ if __name__ == '__main__':
   p.add_argument("sentences_path", type=Path)
   p.add_argument("brain_path", type=Path)
   p.add_argument("encoding_paths", type=Path, nargs="+")
-  p.add_argument("--by_roi", action="store_true")
+  p.add_argument("--anat_group", choices=['roi', 'hemi', None], default=None)
   p.add_argument("--encoding_project", type=int)
   p.add_argument("--image_project", type=int)
   p.add_argument("--n_folds", type=int, default=12)

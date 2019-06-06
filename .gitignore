@@ -1,5 +1,6 @@
 __pycache__
 ._.DS_Store
+.DS_Store
 perf.*.csv
 encodings/*.npy
 .ipynb_checkpoints
