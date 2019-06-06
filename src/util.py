@@ -80,6 +80,9 @@ def downsample_subject_images(subject_data, block_shape=(4, 4, 4)):
 
   Returns:
     examples: `N_examples * d_downsampled` ndarray brain images
+    save_indices_coords: `d_downsampled` ndarray, where the `i`th cell denotes
+      coordinates of the top-left corner of the local region in the subject's
+      original brain image
   """
   # Downsample by taking means across local blocks.
   downsample_fn = np.mean
@@ -98,14 +101,18 @@ def downsample_subject_images(subject_data, block_shape=(4, 4, 4)):
   # Grab indices of reduced matrix that we want to retain
   save_indices = (roi_vol > 0.6).nonzero()
 
+  # Compute the original brain coordinates of the top-left of each local
+  # region.
+  save_indices_coords = np.array(save_indices).T * block_shape[0]
+
   # Now downsample each brain image and save only indices of interest.
   new_examples = np.array(
       [block_reduce(volume, block_shape, downsample_fn)[save_indices]
        for volume in gordon.reconstruct_3D_examples(subject_data)])
-  return new_examples
+  return new_examples, save_indices_coords
 
 
-def load_brain_data(path, project=None, downsample=None):
+def load_brain_data(path, project=None, downsample=None, ret_coords=False):
   subject_data = loadmat(path)
   subject_images = subject_data["examples"]
 
@@ -115,7 +122,8 @@ def load_brain_data(path, project=None, downsample=None):
   if downsample is not None:
     L.info("Downsampling brain images with %i-voxel cubes", downsample)
     old_shape = subject_images.shape
-    subject_images = downsample_subject_images(subject_data, block_shape=(downsample,) * 3)
+    subject_images, coords = \
+        downsample_subject_images(subject_data, block_shape=(downsample,) * 3)
     L.info("Downsampled shape: %s (old shape %s)", subject_images.shape, old_shape)
 
   if project is not None:
@@ -128,6 +136,8 @@ def load_brain_data(path, project=None, downsample=None):
       L.info("PCA explained variance: %f", sum(pca.explained_variance_ratio_) * 100)
       subject_images = pca.transform(subject_images)
 
+  if ret_coords and downsample:
+    return subject_images, coords
   return subject_images
 
 
