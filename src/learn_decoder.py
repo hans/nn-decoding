@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO)
 L = logging.getLogger(__name__)
 
 # Candidate ridge regression regularization parameters.
-ALPHAS = [1, 1e-1, 1e-2, 1e1, 1e2]
+ALPHAS = [1, 1e-1, 1e-2, 1e1]
 
 def decode(encodings, subject_images, subject, args, roi_prefix=''):
   ######### Prepare learning setup.
@@ -113,7 +113,8 @@ def main(args):
                                           downsample=args.image_downsample)
     assert len(subject_images) == len(sentences)
     decode(encodings, subject_images, subject, args,
-           roi_prefix='whole-brain%d' % (args.image_project or args.image_downsample))
+           roi_prefix='whole-brain-%s' % (("proj%d" % args.image_project) if args.image_project
+                                          else ("down%d" % args.image_downsample)))
 
   # Analysis by anatomical ROI or hemisphere.
   else:
@@ -132,12 +133,14 @@ if __name__ == '__main__':
   p.add_argument("sentences_path", type=Path)
   p.add_argument("brain_path", type=Path)
   p.add_argument("encoding_paths", type=Path, nargs="+")
+
   p.add_argument("--anat_group", choices=['roi', 'hemi', None], default=None)
   p.add_argument("-e", "--learn_encoder", default=False, action="store_true")
   p.add_argument("--encoding_project", type=int)
   p.add_argument("--image_project", type=int)
   p.add_argument("--image_downsample", type=int)
   p.add_argument("--n_folds", type=int, default=12)
+
   p.add_argument("--mat_name", default="examples_384sentences.mat")
   p.add_argument("--out_prefix", default="decoder_perf")
   p.add_argument("--subject_name", help="By default, basename of brain_path")
