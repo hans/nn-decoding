@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO)
 L = logging.getLogger(__name__)
 
 # Candidate ridge regression regularization parameters.
-ALPHAS = [1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e1]
+ALPHAS = [1, 1e-1, 1e-2, 1e1, 1e2]
 
 def decode(encodings, subject_images, subject, args, roi_prefix=''):
   ######### Prepare learning setup.
