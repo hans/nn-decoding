@@ -22,7 +22,7 @@ from scipy.spatial import distance
 from tqdm import tqdm
 
 import util
-import select_roi
+import gordon
 
 logging.basicConfig(level=logging.INFO)
 L = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ def main(args):
   # Analysis by anatomical ROI or hemisphere.
   else:
     subj_dict = util.load_full_brain_data(str(args.brain_path / args.mat_name))
-    anat_to_images = select_roi.group_by_anat(subj_dict, group_by=args.anat_group)
+    anat_to_images = gordon.group_by_anat(subj_dict, group_by=args.anat_group)
     assert all(len(images) == len(sentences) for _, images in anat_to_images.items())
     for anat, roi_images in anat_to_images.items():
       L.info("Learning decoder for %s" % anat)
