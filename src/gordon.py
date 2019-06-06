@@ -43,12 +43,26 @@ def _reconstruct_3D_example(example, meta):
     '''
     Returns 3D volume for a single example, using the meta dictionary.
     '''
-    vol = np.zeros(meta["dimensions"][0, 0][0])
-    coordinates = meta["colToCoord"][0, 0]
-    np.put(vol, np.ravel_multi_index(coordinates.T, vol.shape), example)
+    vol = np.zeros(meta["dimensions"])
+    coordinates = meta["colToCoord"]
+    np.put(vol, np.ravel_multi_index(coordinates.T, vol.shape), example.flatten())
     return vol
 
-def reconstruct_3D(subj_dict):
+
+def reconstruct_3D_roi(subject_dict):
+    """
+    Returns standardized across-subject 3D volume, where each cell is marked
+    with its Gordon ROI (or 0 if no ROI).
+    """
+    meta = subject_dict["meta"]
+    roiMask = meta["roiMultimaskGordon"]
+    vol = np.zeros(meta["dimensions"])
+    coordinates = meta["colToCoord"]
+    np.put(vol, np.ravel_multi_index(coordinates.T, vol.shape), roiMask.flatten())
+    return vol
+
+
+def reconstruct_3D_examples(subj_dict):
     '''
     Returns 4D numpy array with 3D volume for each example
     by calling _reconstruct_3D_example.

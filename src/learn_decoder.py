@@ -86,6 +86,7 @@ def decode(encodings, subject_images, subject, args, roi_prefix=''):
   np.save(npy_path, decoder_predictions)
   L.info("Wrote decoder predictions to %s" % npy_path)
 
+
 def main(args):
   print(args)
 
@@ -108,10 +109,12 @@ def main(args):
   # Whole-brain analysis.
   if args.anat_group is None:
     subject_images = util.load_brain_data(str(args.brain_path / args.mat_name),
-                                          project=args.image_project)
+                                          project=args.image_project,
+                                          downsample=args.image_downsample)
     assert len(subject_images) == len(sentences)
-    decode(encodings, subject_images, subject, args, roi_prefix='whole-brain%d' % args.image_project)
-    
+    decode(encodings, subject_images, subject, args,
+           roi_prefix='whole-brain%d' % (args.image_project or args.image_downsample))
+
   # Analysis by anatomical ROI or hemisphere.
   else:
     subj_dict = util.load_full_brain_data(str(args.brain_path / args.mat_name))
@@ -133,6 +136,7 @@ if __name__ == '__main__':
   p.add_argument("-e", "--learn_encoder", default=False, action="store_true")
   p.add_argument("--encoding_project", type=int)
   p.add_argument("--image_project", type=int)
+  p.add_argument("--image_downsample", type=int)
   p.add_argument("--n_folds", type=int, default=12)
   p.add_argument("--mat_name", default="examples_384sentences.mat")
   p.add_argument("--out_prefix", default="decoder_perf")

@@ -18,8 +18,11 @@ except ModuleNotFoundError:
     pass
 import scipy.io as io
 import scipy.stats as st
+from skimage.measure import block_reduce
 from sklearn.decomposition import PCA
 from tqdm import tqdm
+
+import gordon
 
 L = logging.getLogger(__name__)
 
@@ -59,8 +62,8 @@ def load_full_brain_data(path):
 def project_roi_images(roi_images):
     L.info("Original shape of images: {}".format(roi_images.shape))
     dim = min(roi_images.shape)
-    pca = PCA(dim).fit(roi_images) 
-    while sum(pca.explained_variance_ratio_) > 0.95: 
+    pca = PCA(dim).fit(roi_images)
+    while sum(pca.explained_variance_ratio_) > 0.95:
         dim = int(dim / 1.5)
         pca = PCA(dim).fit(roi_images)
     L.info("Projected to %d dimensions", dim)
@@ -68,9 +71,53 @@ def project_roi_images(roi_images):
     roi_images = pca.transform(roi_images)
     return roi_images
 
-def load_brain_data(path, project=None):
-  subject_data = io.loadmat(path)
+
+def downsample_subject_images(subject_data, block_shape=(4, 4, 4)):
+  """
+  Downsample the brain images for a given subject by averaging within local
+  regions, and retain only those regions for which all contained voxels are
+  members of any ROI.
+
+  Returns:
+    examples: `N_examples * d_downsampled` ndarray brain images
+  """
+  # Downsample by taking means across local blocks.
+  downsample_fn = np.mean
+
+  # First prepare ROI mask.
+  # Convert ROI mask to a 3D volume.
+  roi_vol = gordon.reconstruct_3D_roi(subject_data)
+  # Drop ROI information -- we just need to know which voxels are part of the
+  # whole-brain image and which are not. We effectively get a head mask from
+  # this.
+  roi_vol = roi_vol != 0
+  # Now downsample ROI volume. Each resulting cell tells us, for each
+  # corresponding region, how many of the contained cells are within the head
+  # mask.
+  roi_vol = block_reduce(roi_vol, block_shape, func=np.mean)
+  # Grab indices of reduced matrix that we want to retain
+  save_indices = (roi_vol > 0.6).nonzero()
+
+  # Now downsample each brain image and save only indices of interest.
+  new_examples = np.array(
+      [block_reduce(volume, block_shape, downsample_fn)[save_indices]
+       for volume in gordon.reconstruct_3D_examples(subject_data)])
+  return new_examples
+
+
+def load_brain_data(path, project=None, downsample=None):
+  subject_data = loadmat(path)
   subject_images = subject_data["examples"]
+
+  if downsample is not None and project is not None:
+    L.warn("Downsampling and down-projecting afterwards. Does this make sense?")
+
+  if downsample is not None:
+    L.info("Downsampling brain images with %i-voxel cubes", downsample)
+    old_shape = subject_images.shape
+    subject_images = downsample_subject_images(subject_data, block_shape=(downsample,) * 3)
+    L.info("Downsampled shape: %s (old shape %s)", subject_images.shape, old_shape)
+
   if project is not None:
     L.info("Projecting brain images to dimension %i with PCA", project)
     if subject_images.shape[1] < project:
@@ -105,12 +152,12 @@ def load_decoding_perfs(results_dir, glob_prefix=None):
                                        "rank_min", "rank_max"])
       except ValueError:
         continue
-        
+
       results[model, int(run), int(step), subject] = df
-    
+
     if len(results) == 0:
         raise ValueError("No valid csv outputs found.")
-    
+
     ret = pd.concat(results, names=result_keys)
     # drop irrelevant CSV row ID level
     ret.index = ret.index.droplevel(-1)
@@ -124,16 +171,16 @@ def load_decoding_preds(results_dir, glob_prefix=None):
     and source subject image.
     """
     decoder_re = re.compile(r"\.(\w+)-run(\d+)-(\d+)-([\w\d]+)\.pred\.npy$")
-    
+
     results = {}
     for npy in tqdm(list(Path(results_dir).glob("%s*.pred.npy" % (glob_prefix or ""))),
                     desc="Loading prediction files"):
         model, run, step, subject = decoder_re.findall(npy.name)[0]
         results[model, int(run), int(step), subject] = np.load(npy)
-        
+
     if len(results) == 0:
         raise ValueError("No valid npy pred files found.")
-        
+
     return results
 
 
@@ -320,7 +367,7 @@ def _check_keys(d):
     for key in d:
         if isinstance(d[key], io.matlab.mio5_params.mat_struct):
             d[key] = _todict(d[key])
-    return d        
+    return d
 
 def _todict(matobj):
     '''
