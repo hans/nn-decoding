@@ -43,9 +43,9 @@ def _reconstruct_3D_example(example, meta):
     '''
     Returns 3D volume for a single example, using the meta dictionary.
     '''
-    vol = np.zeros(np.prod(meta['dimensions']))
-    vol[meta['indicesIn3D']] = example
-    vol = np.reshape(vol, meta['dimensions'])
+    vol = np.zeros(meta["dimensions"][0, 0][0])
+    coordinates = meta["colToCoord"][0, 0]
+    np.put(vol, np.ravel_multi_index(coordinates.T, vol.shape), example)
     return vol
 
 def reconstruct_3D(subj_dict):
