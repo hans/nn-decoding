@@ -108,17 +108,25 @@ def main(subjects, models, runs, layers, args):
   if args.format == "pickle":
     with args.out_file.open("wb") as out_f:
       pickle.dump(subject_data, out_f)
-  elif args.format == "matlab":
+  elif args.format in ["matlab", "matlab_thresholded"]:
     mat_dict = {}
     
     for subject, data in subject_data.items():
-      for model, model_errors in data["supervoxel_errors"].items():
+      for model in models:
+        if args.format == "matlab":
+          model_errors, coords = data["supervoxel_errors"][model], data["supervoxel_coords"]
+        elif args.format == "matlab_thresholded":
+          # thresholded_errors dict values contain both errors and filtered coords
+          model_errors, coords = data["thresholded_errors"][model]
+
         for layer, layer_errors in zip(layers, model_errors):
+          assert len(layer_errors) == len(coords)
+          
           # Reconstruct a 3D error volume.
           volume = np.zeros(data["dimensions"])
-          np.put(volume, np.ravel_multi_index(data["supervoxel_coords"].T, volume.shape),
+          np.put(volume, np.ravel_multi_index(coords.T, volume.shape),
                  layer_errors)
-          mat_dict["supervoxel_error_volumes-%s-%i-%s" % (model, layer, subject)] = volume
+          mat_dict["supervoxel_error_volumes_%s_%i_%s" % (model, layer, subject)] = volume
           
     io.savemat(args.out_file, mat_dict)
   
@@ -126,7 +134,8 @@ def main(subjects, models, runs, layers, args):
 if __name__ == "__main__":
   p = ArgumentParser()
   p.add_argument("out_file", type=Path)
-  p.add_argument("-f", "--format", choices=["pickle", "matlab"], default="pickle")
+  p.add_argument("-f", "--format", choices=["pickle", "matlab", "matlab_thresholded"],
+                 default="pickle")
   p.add_argument("--downsample", type=int, default=3)
   p.add_argument("--threshold", help="Number of super-voxels to include in final analyses",
                  type=int, default=100)
