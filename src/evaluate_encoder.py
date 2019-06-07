@@ -8,6 +8,7 @@ import pickle
 
 import numpy as np
 import pandas as pd
+from scipy import io
 from sklearn.metrics import mean_squared_error
 from tqdm import tqdm
 
@@ -74,7 +75,7 @@ def evaluate_subject(subject, models, runs, layers,
   """
   # Load subject brain data.
   brain_path = BRAIN_DATA / subject / MAT_FILE
-  subject_images, coords = util.load_brain_data(
+  subject_images, dimensions, coords = util.load_brain_data(
     brain_path, downsample=downsample, ret_coords=True)
   # Normalize as in encoder.
   subject_images -= subject_images.mean(axis=0)
@@ -88,26 +89,44 @@ def evaluate_subject(subject, models, runs, layers,
   thresholded_errors = {model: threshold_and_normalize_errors(errors, coords, n=threshold)
                         for model, errors in all_errors.items()}
   
-  return all_errors, thresholded_errors
+  return all_errors, thresholded_errors, dimensions, coords
 
 
 def main(subjects, models, runs, layers, args):
-  all_errors, thresholded_errors = {}, {}
+  subject_data = {}
   for subject in tqdm(subjects, desc="Subjects"):
-    all_errors[subject], thresholded_errors[subject] = \
+    all_errors, thresholded_errors, dimensions, coords = \
       evaluate_subject(subject, models, runs, layers,
                        downsample=args.downsample, threshold=args.threshold)
+    subject_data[subject] = {
+      "dimensions": dimensions,
+      "supervoxel_coords": coords,
+      "supervoxel_errors": all_errors,
+      "thresholded_errors": thresholded_errors
+    }
+
+  if args.format == "pickle":
+    with args.out_file.open("wb") as out_f:
+      pickle.dump(subject_data, out_f)
+  elif args.format == "matlab":
+    mat_dict = {}
     
-  with args.out_file.open("wb") as out_f:
-    pickle.dump({"all_errors": all_errors,
-                 "thresholded_errors": thresholded_errors},
-                out_f)
-  
+    for subject, data in subject_data.items():
+      for model, model_errors in data["supervoxel_errors"].items():
+        for layer, layer_errors in zip(layers, model_errors):
+          # Reconstruct a 3D error volume.
+          volume = np.zeros(data["dimensions"])
+          np.put(volume, np.ravel_multi_index(data["supervoxel_coords"].T, volume.shape),
+                 layer_errors)
+          mat_dict["supervoxel_error_volumes-%s-%i-%s" % (model, layer, subject)] = volume
+          
+    io.savemat(args.out_file, mat_dict)
   
   
 if __name__ == "__main__":
   p = ArgumentParser()
   p.add_argument("out_file", type=Path)
+  p.add_argument("-f", "--format", choices=["pickle", "matlab"], default="pickle")
   p.add_argument("--downsample", type=int, default=3)
   p.add_argument("--threshold", help="Number of super-voxels to include in final analyses",
                  type=int, default=100)
