@@ -103,6 +103,8 @@ def downsample_subject_images(subject_data, block_shape=(4, 4, 4)):
 
   # Compute the original brain coordinates of the top-left of each local
   # region.
+  #
+  # TODO assumes the blocks are cubes. not necessary
   save_indices_coords = np.array(save_indices).T * block_shape[0]
 
   # Now downsample each brain image and save only indices of interest.
@@ -137,7 +139,7 @@ def load_brain_data(path, project=None, downsample=None, ret_coords=False):
       subject_images = pca.transform(subject_images)
 
   if ret_coords and downsample:
-    return subject_images, coords
+    return subject_images, subject_data["meta"]["dimensions"], coords
   return subject_images
 
 
