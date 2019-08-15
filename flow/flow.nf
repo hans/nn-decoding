@@ -3,9 +3,9 @@
 // baseDir as prepared by nextflow references a particular fs share, which is
 // not good
 omBaseDir = "/om2/user/jgauthie/scratch/nn-decoding"
-params.bert_dir = "~/om2/others/bert"
+params.bert_dir = "/om2/user/jgauthie/others/bert"
 params.bert_base_model = "uncased_L-12_H-768_A-12"
-params.glue_base_dir = "~/om2/data/GLUE"
+params.glue_base_dir = "/om2/user/jgauthie/data/GLUE"
 params.squad_dir = "/om/data/public/jgauthie/squad-2.0"
 
 params.brain_data_path = "$omBaseDir/data/brains"
@@ -17,7 +17,7 @@ params.finetune_checkpoint_steps = 5
 params.finetune_learning_rate = "2e-5"
 params.finetune_squad_learning_rate = "3e-5"
 // CLI params shared across GLUE and SQuAD tasks
-bert_base_dir = [params.bert_dir, params.bert_base_model].join("/")
+bert_base_dir = [params.bert_dir, "models", params.bert_base_model].join("/")
 finetune_cli_params = """--do_train=true --do_eval=true \
     --bert_config_file=${bert_base_dir}/bert_config.json \
     --vocab_file=${bert_base_dir}/vocab.txt \
@@ -28,10 +28,11 @@ finetune_cli_params = """--do_train=true --do_eval=true \
 
 // Encoding extraction parameters.
 params.extract_encoding_layers = "-1"
+params.extract_encoding_cls = true
 
 // Decoder learning parameters
 params.decoder_projection = 256
-params.brain_projection = 8192
+params.brain_projection = 256
 params.decoder_n_jobs = 5
 params.decoder_n_folds = 8
 
@@ -178,15 +179,24 @@ process convertEncoding {
 
     tag "${model_id[0]}-${model_id[1]}"
 
+    script:
+    if (params.extract_encoding_cls) {
+        modifier_flag = "-c"
+    } else {
+        modifier_flag = "-l ${params.extract_encoding_layers}"
+    }
+
     """
 #!/usr/bin/bash
 source activate decoding
 python ${params.bert_dir}/process_encodings.py \
     -i ${encoding_jsonl} \
-    -l ${params.extract_encoding_layers} \
+    ${modifier_flag} \
     -o ${model_id[0]}-${model_id[1]}.npy
     """
 }
+
+encodings.combine(brain_images).set { encodings_brains }
 
 process learnDecoder {
     label "om"
