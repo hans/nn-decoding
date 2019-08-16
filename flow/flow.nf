@@ -43,7 +43,9 @@ params.publishDirPrefix = "${workflow.runName}"
 
 glue_tasks = Channel.from("MNLI", "SST", "QQP")
 brain_images = Channel.fromPath("${params.brain_data_path}/*", type: "dir")
+model_ckpt_files = Channel.fromPath("${params.bert_dir}/models/finetune-250.*/model.ckpt-*")
 
+/*
 process finetuneGlue {
     label "om_gpu_tf"
     publishDir "${params.outdir}/${params.publishDirPrefix}/bert"
@@ -140,44 +142,69 @@ model_ckpt_files
         file -> tuple(tuple(ckpt_id[0], (file.name =~ /^model.ckpt-(\d+)/)[0][1]),
                       file) } }
     .groupTuple()
-    .set { model_ckpts }
+    .set { model_ckpts }*/
+
+// HACK: Models are already available; just need to load from checkpoint.
+// Read out the model metadata from checkpoint paths.
+model_re = /${params.bert_base_model}\.([\w_]+)-run(\d+)$/
+model_ckpt_files
+    .filter {
+        it.parent.name =~ model_re
+    }.map {
+        file -> tuple((file.parent.name =~ /${params.bert_base_model}\.([\w_]+-run\d+)$/)[0][1],
+                      file)
+    }.groupTuple().set { model_ckpts }
 
 process extractEncoding {
     label "om_gpu_tf"
 
     input:
-    set ckpt_id, file(ckpt_files) from model_ckpts
+    set run_id, file(ckpt_files) from model_ckpts
 
     output:
-    set ckpt_id, "encodings.jsonl" into encodings_jsonl
+    set run_id, "encodings*.jsonl" into encodings_jsonl
 
-    tag "${ckpt_id[0]}-${ckpt_id[1]}"
+    tag "${run_id}"
+
+    script:
+    all_ckpts = ckpt_files.target.collect { (it.name =~ /^model.ckpt-(\d+)/)[0][1] }.unique()
+    all_ckpts_str = all_ckpts.join(" ")
 
     """
 #!/bin/bash
-python ${params.bert_dir}/extract_features.py \
-    --input_file=${params.sentences_path} \
-    --output_file=encodings.jsonl \
-    --vocab_file=${bert_base_dir}/vocab.txt \
-    --bert_config_file=${bert_base_dir}/bert_config.json \
-    --init_checkpoint=model.ckpt-${ckpt_id[1]} \
-    --layers="${params.extract_encoding_layers}" \
-    --max_seq_length=128 \
-    --batch_size=64
+
+for ckpt in ${all_ckpts_str}; do
+    python ${params.bert_dir}/extract_features.py \
+        --input_file=${params.sentences_path} \
+        --output_file=encodings-\$ckpt.jsonl \
+        --vocab_file=${bert_base_dir}/vocab.txt \
+        --bert_config_file=${bert_base_dir}/bert_config.json \
+        --init_checkpoint=model.ckpt-\$ckpt \
+        --layers="${params.extract_encoding_layers}" \
+        --max_seq_length=128 \
+        --batch_size=64
+done
     """
 }
+
+// Expand jsonl encodings into individual identifier + jsonl files
+encodings_jsonl.flatMap {
+    els -> els[1].collect {
+        f -> [[els[0], (f.name =~ /-(\d+).jsonl/)[0][1]].join("-"), f]
+    }
+}.set { encodings_jsonl_flat }
 
 process convertEncoding {
     label "om"
     publishDir "${params.outdir}/${params.publishDirPrefix}/encodings"
 
     input:
-    set model_id, file(encoding_jsonl) from encodings_jsonl
+    set ckpt_id, file(encoding_jsonl) from encodings_jsonl_flat
 
     output:
-    set model_id, "${model_id[0]}-${model_id[1]}.npy" into encodings
+    set ckpt_id, "*.npy" into encodings
 
-    tag "${model_id[0]}-${model_id[1]}"
+    tag "${ckpt_id}"
 
     script:
     if (params.extract_encoding_cls) {
@@ -192,7 +219,7 @@ source activate decoding
 python ${params.bert_dir}/process_encodings.py \
     -i ${encoding_jsonl} \
     ${modifier_flag} \
-    -o ${model_id[0]}-${model_id[1]}.npy
+    -o ${ckpt_id}.npy
     """
 }
 
@@ -206,13 +233,14 @@ process learnDecoder {
     cpus params.decoder_n_jobs
 
     input:
-    set model_id, file(encoding), file(brain_dir) from encodings_brains
+    set ckpt_id, file(encoding), file(brain_dir) from encodings_brains
 
     output:
-    file "${model_id[0]}-${model_id[1]}-*"
+    file "${ckpt_id}-*"
 
-    tag "${model_id[0]}-${model_id[1]}"
+    tag "${ckpt_id}-${brain_dir.name}"
 
+    script:
     """
 #!/bin/bash
 source activate decoding
@@ -220,7 +248,7 @@ python ${omBaseDir}/src/learn_decoder.py ${params.sentences_path} \
     ${brain_dir} ${encoding} \
     --n_jobs ${params.decoder_n_jobs} \
     --n_folds ${params.decoder_n_folds} \
-    --out_prefix "${model_id[0]}-${model_id[1]}-${brain_dir.name}" \
+    --out_prefix "${ckpt_id}-${brain_dir.name}" \
     --encoding_project ${params.decoder_projection} \
     --image_project ${params.brain_projection}
     """
