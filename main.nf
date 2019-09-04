@@ -7,11 +7,6 @@ import org.yaml.snakeyaml.Yaml
 omBaseDir = "/om2/user/jgauthie/scratch/nn-decoding"
 params.bert_dir = "/om2/user/jgauthie/others/bert"
 params.bert_base_model = "uncased_L-12_H-768_A-12"
-params.glue_base_dir = "/om2/user/jgauthie/data/GLUE"
-params.squad_dir = "/om/data/public/jgauthie/squad-2.0"
-
-params.brain_data_path = "$omBaseDir/data/brains"
-params.sentences_path = "$omBaseDir/data/sentences/stimuli_384sentences.txt"
 
 // Finetune parameters
 params.finetune_steps = 250
@@ -59,7 +54,73 @@ params.decoding_container = "library://jon/default/nn-decoding:emnlp2019"
 /////////
 
 glue_tasks = Channel.from("MNLI", "SST", "QQP")
-brain_images = Channel.fromPath("${params.brain_data_path}/*", type: "dir")
+
+/**
+ * Fetch brain image data.
+ */
+process fetchBrainData {
+    executor "local"
+
+    output:
+    file("*", type: "dir") into brain_images
+
+    """
+#!/usr/bin/env bash
+wget https://www.dropbox.com/s/bdll04a2h4ou4xj/P01.tar?dl=1
+wget https://www.dropbox.com/s/wetd2gqljfbh8cg/M02.tar?dl=1
+wget https://www.dropbox.com/s/b7tvvkrhs5g3blc/M04.tar?dl=1
+wget https://www.dropbox.com/s/izwr74rxn637ilm/M07.tar?dl=1
+wget https://www.dropbox.com/s/3q6xhtmj611ibmo/M08.tar?dl=1
+wget https://www.dropbox.com/s/kv1wm2ovvejt9pg/M09.tar?dl=1
+wget https://www.dropbox.com/s/2h6kmootoruwz52/M14.tar?dl=1
+wget https://www.dropbox.com/s/u19wdpohr5pzohr/M15.tar?dl=1
+
+find . -name '*\?*' | while read -r path; do
+    newpath="${path%\?*}"
+    mv "$path" "$newpath"
+    tar xf "$newpath"
+    rm "$newpath"
+done
+    """
+}
+
+/**
+ * Fetch sentence data.
+ */
+process fetchSentenceData {
+    executor "local"
+
+    output:
+    file("stimuli_384sentences.txt") as sentence_data
+
+    """
+#!/usr/bin/env bash
+wget https://www.dropbox.com/s/jtqnvzg3jz6dctq/stimuli_384sentences.txt?dl=1
+mv stimuli_384sentences.txt\?dl=1 stimuli_384sentences.txt
+    """
+}
+
+sentence_data.into { sentence_data_for_extraction; sentence_data_for_decoder }
+
+/**
+ * Fetch GLUE task data (except SQuAD).
+ */
+process fetchGLUEData {
+    executor "local"
+
+    output:
+    file("GLUE", type: "dir") as glue_data
+
+    """
+#!/usr/bin/env bash
+# TODO download GLUE data
+    """
+}
+
+/**
+ * Fetch the SQuAD dataset.
+ */
+Channel.fromPath("TODO SQuAD URL").into { squad_data_for_train; squad_data_for_eval }
 
 /**
  * Fine-tune and evaluate the BERT model on the GLUE datasets (except SQuAD).
@@ -70,18 +131,21 @@ process finetuneGlue {
     publishDir "${params.outdir}/bert"
 
     input:
-    val glue_task from glue_tasks
+    val(glue_task), file(glue_dir) from glue_tasks.combine(glue_data)
 
     output:
     set glue_task, "model.ckpt-*" into model_ckpt_files_glue
 
     tag "$glue_task"
 
+    script:
+    // TODO assert that glue_task exists in glue_dir
+
     """
 #!/bin/bash
 run_classifier.py --task_name=$glue_task \
     ${finetune_cli_params} \
-    --data_dir=${params.glue_base_dir}/${glue_task} \
+    --data_dir=${glue_dir}/${glue_task} \
     --learning_rate ${params.finetune_learning_rate} \
     --max_seq_length 128 \
     --train_batch_size 32 \
@@ -96,6 +160,9 @@ process finetuneSquad {
     container params.bert_container
     publishDir "${params.outdir}/bert"
 
+    input:
+    file(squad_dir) from squad_data_for_train
+
     output:
     set val("SQuAD"), "model.ckpt-*" into model_ckpt_files_squad
 
@@ -105,9 +172,9 @@ process finetuneSquad {
 #!/bin/bash
 run_squad.py \
     ${finetune_cli_params} \
-    --train_file=${params.squad_dir}/train-v2.0.json \
-    --predict_file=${params.squad_dir}/dev-v2.0.json \
-    --data_dir=${params.squad_dir} \
+    --train_file=${squad_dir}/train-v2.0.json \
+    --predict_file=${squad_dir}/dev-v2.0.json \
+    --data_dir=${squad_dir} \
     --max_seq_length 384 \
     --train_batch_size 12 \
     --doc_stride 128 \
@@ -131,7 +198,8 @@ process evalSquad {
     publishDir "${params.outdir}/eval_squad"
 
     input:
-    set ckpt_step, file(ckpt_files) from squad_eval_ckpts
+    set ckpt_step, file(ckpt_files), file(squad_dir) \
+        from squad_eval_ckpts.combine(squad_data_for_eval)
 
     output:
     set val("step ${ckpt_step}"), file("predictions.json"), file("null_odds.json"), file("results.json") into squad_eval_results
@@ -148,13 +216,13 @@ run_squad.py --do_predict \
     --vocab_file=${bert_base_dir}/vocab.txt \
     --bert_config_file=${bert_base_dir}/bert_config.json \
     --init_checkpoint=model.ckpt-${ckpt_step} \
-    --predict_file=${params.squad_dir}/dev-v2.0.json \
+    --predict_file=${squad_dir}/dev-v2.0.json \
     --doc_stride 128 --version_2_with_negative=True \
     --predict_batch_size 32 \
     --output_dir .
 
 # Evaluate using SQuAD tools.
-python ${params.squad_dir}/evaluate-v2.0.py ${params.squad_dir}/dev-v2.0.json \
+python ${squad_dir}/evaluate-v2.0.py ${squad_dir}/dev-v2.0.json \
     predictions.json --na-prob-file null_odds.json > results.json
     """
 }
@@ -178,6 +246,8 @@ process extractEncoding {
 
     input:
     set run_id, file(ckpt_files) from model_ckpts_for_decoder
+    file(sentences) from sentence_data_for_extraction
+    // TODO I think we need a tee or something on the above
 
     output:
     set run_id, "encodings*.jsonl" into encodings_jsonl
@@ -193,7 +263,7 @@ process extractEncoding {
 
 for ckpt in ${all_ckpts_str}; do
     extract_features.py \
-        --input_file=${params.sentences_path} \
+        --input_file=${sentences} \
         --output_file=encodings-\$ckpt.jsonl \
         --vocab_file=${bert_base_dir}/vocab.txt \
         --bert_config_file=${bert_base_dir}/bert_config.json \
@@ -259,6 +329,7 @@ process learnDecoder {
 
     input:
     set ckpt_id, file(encoding), file(brain_dir) from encodings_brains
+    file(sentences) from sentence_data_for_decoder
 
     output:
     file "${ckpt_id}-*"
@@ -268,7 +339,7 @@ process learnDecoder {
     script:
     """
 #!/bin/bash
-python src/learn_decoder.py ${params.sentences_path} \
+python src/learn_decoder.py ${sentences} \
     ${brain_dir} ${encoding} \
     --n_jobs ${params.decoder_n_jobs} \
     --n_folds ${params.decoder_n_folds} \
