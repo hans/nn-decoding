@@ -60,6 +60,7 @@ glue_tasks = Channel.from("MNLI", "SST", "QQP")
  */
 process fetchBrainData {
     executor "local"
+    publishDir "${params.outdir}/brains"
 
     output:
     file("*", type: "dir") into brain_images
@@ -89,6 +90,7 @@ done
  */
 process fetchSentenceData {
     executor "local"
+    publishDir "${params.outdir}/sentences"
 
     output:
     file("stimuli_384sentences.txt") as sentence_data
