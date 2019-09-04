@@ -3,7 +3,7 @@
 #SBATCH --mem=8G
 #SBATCH -t 0-5
 #SBATCH -c 3
-#SBATCH --qos=cpl
+#SBATCH -p cpl
 
 source /etc/profile.d/modules.sh
 source ~/.profile

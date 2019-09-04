@@ -74,7 +74,7 @@ def load_decoding_perfs(results_dir, glob_prefix=None):
     Args:
         results_dir: path to directory containing CSV decoder results
     """
-    decoder_re = re.compile(r"\.(\w+)-run(\d+)-(\d+)-([\w\d]+)\.csv$")
+    decoder_re = re.compile(r"(\w+)-run(\d+)-(\d+)-([\w\d]+)\.csv$")
 
     results = {}
     result_keys = ["model", "run", "step", "subject"]
