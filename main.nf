@@ -1,5 +1,7 @@
 #!/usr/bin/env nextflow
 
+import org.yaml.snakeyaml.Yaml
+
 // baseDir as prepared by nextflow references a particular fs share, which is
 // not good
 omBaseDir = "/om2/user/jgauthie/scratch/nn-decoding"
@@ -17,6 +19,8 @@ params.finetune_checkpoint_steps = 5
 params.finetune_learning_rate = "2e-5"
 params.finetune_squad_learning_rate = "3e-5"
 // CLI params shared across GLUE and SQuAD tasks
+// TODO make sure we can get rid of all references to bert_base_dir
+// so that we can run containerized BERT
 bert_base_dir = [params.bert_dir, "models", params.bert_base_model].join("/")
 finetune_cli_params = """--do_train=true --do_eval=true \
     --bert_config_file=${bert_base_dir}/bert_config.json \
@@ -36,23 +40,34 @@ params.brain_projection = 256
 params.decoder_n_jobs = 5
 params.decoder_n_folds = 8
 
-params.outdir = "output"
-params.publishDirPrefix = "${workflow.runName}"
+// Structural probe parameters
+params.structural_probe_layers = "11"
+structural_probe_layers = params.structural_probe_layers.split(",")
+params.structural_probe_spec = "structural-probes/spec.yaml"
+structural_probe_spec = new Yaml().load((params.structural_probe_spec as File).text)
 
-params.tensorflow_container = "library://jon/default/tensorflow:1.12-gpu"
+/////////
+
+params.outdir = "output"
+
+// TODO make container
+params.bert_container = "library://jon/default/bert:small-gpu"
 params.structural_probes_container = "library://jon/default/structural-probes:latest"
+// TODO make container
+params.decoding_container = "library://jon/default/nn-decoding:emnlp2019"
 
 /////////
 
 glue_tasks = Channel.from("MNLI", "SST", "QQP")
 brain_images = Channel.fromPath("${params.brain_data_path}/*", type: "dir")
-model_ckpt_files = Channel.fromPath("${params.bert_dir}/models/finetune-250.*/model.ckpt-*")
 
-/*
+/**
+ * Fine-tune and evaluate the BERT model on the GLUE datasets (except SQuAD).
+ */
 process finetuneGlue {
     label "om_gpu"
-    container params.tensorflow_container
-    publishDir "${params.outdir}/${params.publishDirPrefix}/bert"
+    container params.bert_container
+    publishDir "${params.outdir}/bert"
 
     input:
     val glue_task from glue_tasks
@@ -64,7 +79,7 @@ process finetuneGlue {
 
     """
 #!/bin/bash
-python ${params.bert_dir}/run_classifier.py --task_name=$glue_task \
+run_classifier.py --task_name=$glue_task \
     ${finetune_cli_params} \
     --data_dir=${params.glue_base_dir}/${glue_task} \
     --learning_rate ${params.finetune_learning_rate} \
@@ -73,10 +88,13 @@ python ${params.bert_dir}/run_classifier.py --task_name=$glue_task \
     """
 }
 
+/**
+ * Fine-tune the BERT model on the SQuAD dataset.
+ */
 process finetuneSquad {
     label "om_gpu"
-    container params.tensorflow_container
-    publishDir "${params.outdir}/${params.publishDirPrefix}/bert"
+    container params.bert_container
+    publishDir "${params.outdir}/bert"
 
     output:
     set val("SQuAD"), "model.ckpt-*" into model_ckpt_files_squad
@@ -85,7 +103,7 @@ process finetuneSquad {
 
     """
 #!/bin/bash
-python ${params.bert_dir}/run_squad.py \
+run_squad.py \
     ${finetune_cli_params} \
     --train_file=${params.squad_dir}/train-v2.0.json \
     --predict_file=${params.squad_dir}/dev-v2.0.json \
@@ -100,16 +118,17 @@ python ${params.bert_dir}/run_squad.py \
 
 model_ckpt_files_squad.into { squad_for_eval; squad_for_extraction }
 
-// SQuAD training does not support online evaluation -- run separately on the
-// saved checkpoints
+/**
+ * Run evaluation for the SQuAD fine-tuned models.
+ */
 // Group SQuAD checkpoints based on their prefix.
 squad_for_eval.flatMap { ckpt_id -> ckpt_id[1].collect {
     file -> tuple((file.name =~ /^model.ckpt-(\d+)/)[0][1], file)
 } }.groupTuple().set { squad_eval_ckpts }
 process evalSquad {
     label "om_gpu"
-    container params.tensorflow_container
-    publishDir "${params.outdir}/${params.publishDirPrefix}/eval_squad"
+    container params.bert_container
+    publishDir "${params.outdir}/eval_squad"
 
     input:
     set ckpt_step, file(ckpt_files) from squad_eval_ckpts
@@ -125,7 +144,7 @@ process evalSquad {
 echo "model_checkpoint_path: \"model.ckpt-${ckpt_step}\"" > checkpoint
 
 # Run prediction.
-python ${params.bert_dir}/run_squad.py --do_predict \
+run_squad.py --do_predict \
     --vocab_file=${bert_base_dir}/vocab.txt \
     --bert_config_file=${bert_base_dir}/bert_config.json \
     --init_checkpoint=model.ckpt-${ckpt_step} \
@@ -148,25 +167,17 @@ model_ckpt_files
         file -> tuple(tuple(ckpt_id[0], (file.name =~ /^model.ckpt-(\d+)/)[0][1]),
                       file) } }
     .groupTuple()
-    .set { model_ckpts }*/
+    .into { model_ckpts_for_decoder; model_ckpts_for_sprobe }
 
-// HACK: Models are already available; just need to load from checkpoint.
-// Read out the model metadata from checkpoint paths.
-model_re = /${params.bert_base_model}\.([\w_]+)-run(\d+)$/
-model_ckpt_files
-    .filter {
-        it.parent.name =~ model_re
-    }.map {
-        file -> tuple((file.parent.name =~ /${params.bert_base_model}\.([\w_]+-run\d+)$/)[0][1],
-                      file)
-    }.groupTuple().set { model_ckpts }
-
+/**
+ * Extract .jsonl sentence encodings from each fine-tuned model.
+ */
 process extractEncoding {
     label "om_gpu"
-    container params.tensorflow_container
+    container params.bert_container
 
     input:
-    set run_id, file(ckpt_files) from model_ckpts
+    set run_id, file(ckpt_files) from model_ckpts_for_decoder
 
     output:
     set run_id, "encodings*.jsonl" into encodings_jsonl
@@ -181,7 +192,7 @@ process extractEncoding {
 #!/bin/bash
 
 for ckpt in ${all_ckpts_str}; do
-    python ${params.bert_dir}/extract_features.py \
+    extract_features.py \
         --input_file=${params.sentences_path} \
         --output_file=encodings-\$ckpt.jsonl \
         --vocab_file=${bert_base_dir}/vocab.txt \
@@ -201,11 +212,13 @@ encodings_jsonl.flatMap {
     }
 }.set { encodings_jsonl_flat }
 
+/**
+ * Convert .jsonl encodings to easier-to-use numpy arrays, saved as .npy
+ */
 process convertEncoding {
     label "om"
-    // TODO will this container work?
-    container params.structural_probes_container
-    publishDir "${params.outdir}/${params.publishDirPrefix}/encodings"
+    container params.bert_container
+    publishDir "${params.outdir}/encodings"
 
     input:
     set ckpt_id, file(encoding_jsonl) from encodings_jsonl_flat
@@ -224,7 +237,7 @@ process convertEncoding {
 
     """
 #!/usr/bin/bash
-python ${params.bert_dir}/process_encodings.py \
+process_encodings.py \
     -i ${encoding_jsonl} \
     ${modifier_flag} \
     -o ${ckpt_id}.npy
@@ -233,13 +246,14 @@ python ${params.bert_dir}/process_encodings.py \
 
 encodings.combine(brain_images).set { encodings_brains }
 
+/**
+ * Learn regression models mapping between brain images and model encodings.
+ */
 process learnDecoder {
     label "om"
-    // TODO will this work?
-    container params.structural_probes_container
+    container params.decoding_container
 
-    publishDir "${params.outdir}/${params.publishDirPrefix}/decoders"
-    clusterOptions "${baseClusterOptions} -c ${params.decoder_n_jobs}"
+    publishDir "${params.outdir}/decoders"
     memory "8 GB"
     cpus params.decoder_n_jobs
 
@@ -254,13 +268,90 @@ process learnDecoder {
     script:
     """
 #!/bin/bash
-source activate decoding
-python ${omBaseDir}/src/learn_decoder.py ${params.sentences_path} \
+python src/learn_decoder.py ${params.sentences_path} \
     ${brain_dir} ${encoding} \
     --n_jobs ${params.decoder_n_jobs} \
     --n_folds ${params.decoder_n_folds} \
     --out_prefix "${ckpt_id}-${brain_dir.name}" \
     --encoding_project ${params.decoder_projection} \
     --image_project ${params.brain_projection}
+    """
+}
+
+/**
+ * Extract encodings for structural probe analysis (expects hdf5 format).
+ */
+process extractEncodingForStructuralProbe {
+    label "om_gpu"
+    container params.bert_container
+
+    input:
+    set run_id, file(ckpt_files) from model_ckpts_for_sprobe
+
+    output:
+    set run_id, "encodings-*.hdf5" into encodings_sprobe
+
+    tag "${run_id}"
+
+    script:
+    all_ckpts = ckpt_files.collect { (it.name =~ /^model.ckpt-(\d+)/)[0][1] }.unique()
+    all_ckpts_str = all_ckpts.join(" ")
+    sprobe_layers = structural_probe_layers.join(",")
+
+    // We need to extract encodings for separate train and dev sentences.
+    sentence_files = [
+        params.structural_probe_train_path,
+        params.structural_probe_dev_path,
+    ]
+    sentence_files_str = sentence_files.join(" ")
+
+    """
+#!/usr/bin/bash
+for ckpt in ${all_ckpts_str}; do
+    for sentence_file in ${sentence_files_str}; do
+        extract_features.py \
+            --input_file=\$sentence_file \
+            --output_file=encodings-\$ckpt.hdf5 \
+            --vocab_file=${bert_base_dir}/vocab.txt \
+            --bert_config_file=${bert_base_dir}/bert_config.json \
+            --init_checkpoint=model.ckpt-\$ckpt \
+            --layers="${sprobe_layers}" \
+            --max_seq_length=96 \
+            --batch_size=64 \
+            --output_format=hdf5
+    done
+done
+    """
+}
+
+// Expand hdf5 encodings into individual identifier + hdf5 files
+encodings_sprobe.flatMap {
+    els -> els[1].collect {
+        fs -> [[els[0], (f.name =~ /-(\d+).jsonl/)[0][1]].join("-"), fs]
+    }
+}.set { encodings_sprobe_flat }
+
+/**
+ * Train and evaluate structural probe for each checkpoint.
+process runStructuralProbe {
+    label "om"
+    container params.structural_probes_container
+    publishDir "${params.outdir}/structural-probe"
+
+    input:
+    set ckpt_id, file(encodings) into encodings_sprobe
+
+    output:
+    set ckpt_id, file("dev.uuas"), file("dev.spearman") into sprobe_results
+
+    script:
+    // TODO extract train encoding
+    // TODO extract dev encodings
+    // TODO prepare final YAML spec, save to temporary file
+    yaml_path = null
+
+    """
+#!/usr/bin/bash
+run_experiment.py --train-probe 1 ${yaml_path}
     """
 }
