@@ -39,6 +39,9 @@ params.decoder_n_folds = 8
 params.outdir = "output"
 params.publishDirPrefix = "${workflow.runName}"
 
+params.tensorflow_container = "library://jon/default/tensorflow:1.12-gpu"
+params.structural_probes_container = "library://jon/default/structural-probes:latest"
+
 /////////
 
 glue_tasks = Channel.from("MNLI", "SST", "QQP")
@@ -47,7 +50,8 @@ model_ckpt_files = Channel.fromPath("${params.bert_dir}/models/finetune-250.*/mo
 
 /*
 process finetuneGlue {
-    label "om_gpu_tf"
+    label "om_gpu"
+    container params.tensorflow_container
     publishDir "${params.outdir}/${params.publishDirPrefix}/bert"
 
     input:
@@ -70,7 +74,8 @@ python ${params.bert_dir}/run_classifier.py --task_name=$glue_task \
 }
 
 process finetuneSquad {
-    label "om_gpu_tf"
+    label "om_gpu"
+    container params.tensorflow_container
     publishDir "${params.outdir}/${params.publishDirPrefix}/bert"
 
     output:
@@ -102,7 +107,8 @@ squad_for_eval.flatMap { ckpt_id -> ckpt_id[1].collect {
     file -> tuple((file.name =~ /^model.ckpt-(\d+)/)[0][1], file)
 } }.groupTuple().set { squad_eval_ckpts }
 process evalSquad {
-    label "om_gpu_tf"
+    label "om_gpu"
+    container params.tensorflow_container
     publishDir "${params.outdir}/${params.publishDirPrefix}/eval_squad"
 
     input:
@@ -156,7 +162,8 @@ model_ckpt_files
     }.groupTuple().set { model_ckpts }
 
 process extractEncoding {
-    label "om_gpu_tf"
+    label "om_gpu"
+    container params.tensorflow_container
 
     input:
     set run_id, file(ckpt_files) from model_ckpts
@@ -196,6 +203,8 @@ encodings_jsonl.flatMap {
 
 process convertEncoding {
     label "om"
+    // TODO will this container work?
+    container params.structural_probes_container
     publishDir "${params.outdir}/${params.publishDirPrefix}/encodings"
 
     input:
@@ -215,7 +224,6 @@ process convertEncoding {
 
     """
 #!/usr/bin/bash
-source activate decoding
 python ${params.bert_dir}/process_encodings.py \
     -i ${encoding_jsonl} \
     ${modifier_flag} \
@@ -227,6 +235,9 @@ encodings.combine(brain_images).set { encodings_brains }
 
 process learnDecoder {
     label "om"
+    // TODO will this work?
+    container params.structural_probes_container
+
     publishDir "${params.outdir}/${params.publishDirPrefix}/decoders"
     clusterOptions "${baseClusterOptions} -c ${params.decoder_n_jobs}"
     memory "8 GB"
