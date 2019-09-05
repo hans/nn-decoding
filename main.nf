@@ -2,9 +2,6 @@
 
 import org.yaml.snakeyaml.Yaml
 
-// baseDir as prepared by nextflow references a particular fs share, which is
-// not good
-omBaseDir = "/om2/user/jgauthie/scratch/nn-decoding"
 params.bert_dir = "/om2/user/jgauthie/others/bert"
 params.bert_base_model = "uncased_L-12_H-768_A-12"
 
