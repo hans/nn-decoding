@@ -56,7 +56,7 @@ glue_tasks = Channel.from("MNLI", "SST", "QQP")
  * Fetch brain image data.
  */
 process fetchBrainData {
-    executor "local"
+    label "small"
     publishDir "${params.outdir}/brains"
 
     output:
@@ -86,7 +86,7 @@ done
  * Fetch sentence data.
  */
 process fetchSentenceData {
-    executor "local"
+    label "small"
     publishDir "${params.outdir}/sentences"
 
     output:
@@ -105,7 +105,7 @@ sentence_data.into { sentence_data_for_extraction; sentence_data_for_decoder }
  * Fetch GLUE task data (except SQuAD).
  */
 process fetchGLUEData {
-    executor "local"
+    label "small"
 
     output:
     file("GLUE", type: "dir") as glue_data
@@ -125,7 +125,7 @@ Channel.fromPath("TODO SQuAD URL").into { squad_data_for_train; squad_data_for_e
  * Fine-tune and evaluate the BERT model on the GLUE datasets (except SQuAD).
  */
 process finetuneGlue {
-    label "om_gpu"
+    label "gpu_large"
     container params.bert_container
     publishDir "${params.outdir}/bert"
 
@@ -155,7 +155,7 @@ run_classifier.py --task_name=$glue_task \
  * Fine-tune the BERT model on the SQuAD dataset.
  */
 process finetuneSquad {
-    label "om_gpu"
+    label "gpu_large"
     container params.bert_container
     publishDir "${params.outdir}/bert"
 
@@ -192,7 +192,7 @@ squad_for_eval.flatMap { ckpt_id -> ckpt_id[1].collect {
     file -> tuple((file.name =~ /^model.ckpt-(\d+)/)[0][1], file)
 } }.groupTuple().set { squad_eval_ckpts }
 process evalSquad {
-    label "om_gpu"
+    label "gpu_medium"
     container params.bert_container
     publishDir "${params.outdir}/eval_squad"
 
@@ -240,13 +240,12 @@ model_ckpt_files
  * Extract .jsonl sentence encodings from each fine-tuned model.
  */
 process extractEncoding {
-    label "om_gpu"
+    label "gpu_medium"
     container params.bert_container
 
     input:
-    set run_id, file(ckpt_files) from model_ckpts_for_decoder
-    file(sentences) from sentence_data_for_extraction
-    // TODO I think we need a tee or something on the above
+    set run_id, file(ckpt_files), file(sentences) \
+        from model_ckpts_for_decoder.combine(sentence_data_for_extraction)
 
     output:
     set run_id, "encodings*.jsonl" into encodings_jsonl
@@ -285,7 +284,7 @@ encodings_jsonl.flatMap {
  * Convert .jsonl encodings to easier-to-use numpy arrays, saved as .npy
  */
 process convertEncoding {
-    label "om"
+    label "medium"
     container params.bert_container
     publishDir "${params.outdir}/encodings"
 
@@ -319,11 +318,10 @@ encodings.combine(brain_images).set { encodings_brains }
  * Learn regression models mapping between brain images and model encodings.
  */
 process learnDecoder {
-    label "om"
+    label "medium"
     container params.decoding_container
 
     publishDir "${params.outdir}/decoders"
-    memory "8 GB"
     cpus params.decoder_n_jobs
 
     input:
@@ -352,7 +350,7 @@ python src/learn_decoder.py ${sentences} \
  * Extract encodings for structural probe analysis (expects hdf5 format).
  */
 process extractEncodingForStructuralProbe {
-    label "om_gpu"
+    label "gpu_medium"
     container params.bert_container
 
     input:
@@ -404,7 +402,7 @@ encodings_sprobe.flatMap {
 /**
  * Train and evaluate structural probe for each checkpoint.
 process runStructuralProbe {
-    label "om"
+    label "medium"
     container params.structural_probes_container
     publishDir "${params.outdir}/structural-probe"
 
