@@ -96,7 +96,7 @@ process fetchGLUEData {
     label "small"
 
     output:
-    file("GLUE", type: "dir") as glue_data
+    file("GLUE", type: "dir") into glue_data
 
     """
 #!/usr/bin/env bash
@@ -118,7 +118,7 @@ process finetuneGlue {
     publishDir "${params.outdir}/bert"
 
     input:
-    val(glue_task), file(glue_dir) from glue_tasks.combine(glue_data)
+    set val(glue_task), file(glue_dir) from glue_tasks.combine(glue_data)
 
     output:
     set glue_task, "model.ckpt-*" into model_ckpt_files_glue
@@ -389,6 +389,7 @@ encodings_sprobe.flatMap {
 
 /**
  * Train and evaluate structural probe for each checkpoint.
+ */
 process runStructuralProbe {
     label "medium"
     container params.structural_probes_container
