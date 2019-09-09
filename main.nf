@@ -382,7 +382,7 @@ encodings_sprobe.flatMap {
 }.set { encodings_sprobe_flat }
 
 /**
- * Train and evaluate structural probe for each checkpoint.
+ * Train and evaluate structural probe for each checkpoint and each layer.
  */
 process runStructuralProbe {
     label "medium"
@@ -390,16 +390,20 @@ process runStructuralProbe {
     publishDir "${params.outdir}/structural-probe"
 
     input:
-    set ckpt_id, file(encodings) from encodings_sprobe
+    set ckpt_id, file(encodings), layer \
+        from encodings_sprobe.combine(Channel.from(structural_probe_layers))
 
     output:
     set ckpt_id, file("dev.uuas"), file("dev.spearman") into sprobe_results
 
     script:
-    // TODO extract train encoding
-    // TODO extract dev encodings
-    // TODO prepare final YAML spec, save to temporary file
-    yaml_path = null
+    // Copy YAML template
+    spec = new Yaml().load(new Yaml().dump(structural_probe_spec))
+    spec.model.model_layer = layer
+
+    // Save to temporary file.
+    yaml_path = "spec.yaml"
+    writeFile file: yaml_path, text: (new Yaml().dump(spec))
 
     """
 #!/usr/bin/bash
