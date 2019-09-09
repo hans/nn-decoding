@@ -51,54 +51,42 @@ params.decoding_container = "library://jon/default/nn-decoding:emnlp2019"
 /////////
 
 glue_tasks = Channel.from("MNLI", "SST", "QQP")
+brain_images = Channel.fromPath([
+    "https://www.dropbox.com/s/bdll04a2h4ou4xj/P01.tar?dl=1",
+    "https://www.dropbox.com/s/wetd2gqljfbh8cg/M02.tar?dl=1",
+    "https://www.dropbox.com/s/b7tvvkrhs5g3blc/M04.tar?dl=1",
+    "https://www.dropbox.com/s/izwr74rxn637ilm/M07.tar?dl=1",
+    "https://www.dropbox.com/s/3q6xhtmj611ibmo/M08.tar?dl=1",
+    "https://www.dropbox.com/s/kv1wm2ovvejt9pg/M09.tar?dl=1",
+    "https://www.dropbox.com/s/2h6kmootoruwz52/M14.tar?dl=1",
+    "https://www.dropbox.com/s/u19wdpohr5pzohr/M15.tar?dl=1",
+])
 
 /**
- * Fetch brain image data.
+ * Uncompress brain image data.
  */
-process fetchBrainData {
+process extractBrainData {
     label "small"
     publishDir "${params.outdir}/brains"
 
+    input:
+    file("*.tar*") from brain_images.collect()
+
     output:
-    file("*", type: "dir") into brain_images
+    file("*", type: "dir") into brain_images_uncompressed
 
     """
 #!/usr/bin/env bash
-wget https://www.dropbox.com/s/bdll04a2h4ou4xj/P01.tar?dl=1
-wget https://www.dropbox.com/s/wetd2gqljfbh8cg/M02.tar?dl=1
-wget https://www.dropbox.com/s/b7tvvkrhs5g3blc/M04.tar?dl=1
-wget https://www.dropbox.com/s/izwr74rxn637ilm/M07.tar?dl=1
-wget https://www.dropbox.com/s/3q6xhtmj611ibmo/M08.tar?dl=1
-wget https://www.dropbox.com/s/kv1wm2ovvejt9pg/M09.tar?dl=1
-wget https://www.dropbox.com/s/2h6kmootoruwz52/M14.tar?dl=1
-wget https://www.dropbox.com/s/u19wdpohr5pzohr/M15.tar?dl=1
-
-find . -name '*\?*' | while read -r path; do
-    newpath="${path%\?*}"
-    mv "$path" "$newpath"
-    tar xf "$newpath"
-    rm "$newpath"
+find . -name '*tar*' | while read -r path; do
+    newpath="\${path%.*}"
+    mv "\$path" "\$newpath"
+    tar xf "\$newpath"
+    rm "\$newpath"
 done
     """
 }
 
-/**
- * Fetch sentence data.
- */
-process fetchSentenceData {
-    label "small"
-    publishDir "${params.outdir}/sentences"
-
-    output:
-    file("stimuli_384sentences.txt") as sentence_data
-
-    """
-#!/usr/bin/env bash
-wget https://www.dropbox.com/s/jtqnvzg3jz6dctq/stimuli_384sentences.txt?dl=1
-mv stimuli_384sentences.txt\?dl=1 stimuli_384sentences.txt
-    """
-}
-
+sentence_data = Channel.fromPath("https://www.dropbox.com/s/jtqnvzg3jz6dctq/stimuli_384sentences.txt?dl=1")
 sentence_data.into { sentence_data_for_extraction; sentence_data_for_decoder }
 
 /**
