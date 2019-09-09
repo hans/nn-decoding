@@ -2,22 +2,16 @@
 
 import org.yaml.snakeyaml.Yaml
 
-params.bert_dir = "/om2/user/jgauthie/others/bert"
-params.bert_base_model = "uncased_L-12_H-768_A-12"
-
 // Finetune parameters
 params.finetune_steps = 250
 params.finetune_checkpoint_steps = 5
 params.finetune_learning_rate = "2e-5"
 params.finetune_squad_learning_rate = "3e-5"
 // CLI params shared across GLUE and SQuAD tasks
-// TODO make sure we can get rid of all references to bert_base_dir
-// so that we can run containerized BERT
-bert_base_dir = [params.bert_dir, "models", params.bert_base_model].join("/")
 finetune_cli_params = """--do_train=true --do_eval=true \
-    --bert_config_file=${bert_base_dir}/bert_config.json \
-    --vocab_file=${bert_base_dir}/vocab.txt \
-    --init_checkpoint=${bert_base_dir}/model.ckpt \
+    --bert_config_file=\$BERT_MODEL/bert_config.json \
+    --vocab_file=\$BERT_MODEL/vocab.txt \
+    --init_checkpoint=\$BERT_MODEL/model.ckpt \
     --num_train_steps=${params.finetune_steps} \
     --save_checkpoint_steps=${params.finetune_checkpoint_steps} \
     --output_dir ."""
@@ -43,7 +37,7 @@ structural_probe_spec = new Yaml().load((params.structural_probe_spec as File).t
 params.outdir = "output"
 
 // TODO make container
-params.bert_container = "library://jon/default/bert:small-gpu"
+params.bert_container = "library://jon/default/bert:base-gpu"
 params.structural_probes_container = "library://jon/default/structural-probes:latest"
 // TODO make container
 params.decoding_container = "library://jon/default/nn-decoding:emnlp2019"
@@ -200,8 +194,8 @@ echo "model_checkpoint_path: \"model.ckpt-${ckpt_step}\"" > checkpoint
 
 # Run prediction.
 run_squad.py --do_predict \
-    --vocab_file=${bert_base_dir}/vocab.txt \
-    --bert_config_file=${bert_base_dir}/bert_config.json \
+    --vocab_file=\$BERT_MODEL/vocab.txt \
+    --bert_config_file=\$BERT_MODEL/bert_config.json \
     --init_checkpoint=model.ckpt-${ckpt_step} \
     --predict_file=${squad_dir}/dev-v2.0.json \
     --doc_stride 128 --version_2_with_negative=True \
@@ -251,8 +245,8 @@ for ckpt in ${all_ckpts_str}; do
     extract_features.py \
         --input_file=${sentences} \
         --output_file=encodings-\$ckpt.jsonl \
-        --vocab_file=${bert_base_dir}/vocab.txt \
-        --bert_config_file=${bert_base_dir}/bert_config.json \
+        --vocab_file=\$BERT_MODEL/vocab.txt \
+        --bert_config_file=\$BERT_MODEL/bert_config.json \
         --init_checkpoint=model.ckpt-\$ckpt \
         --layers="${params.extract_encoding_layers}" \
         --max_seq_length=128 \
@@ -368,8 +362,8 @@ for ckpt in ${all_ckpts_str}; do
         extract_features.py \
             --input_file=\$sentence_file \
             --output_file=encodings-\$ckpt.hdf5 \
-            --vocab_file=${bert_base_dir}/vocab.txt \
-            --bert_config_file=${bert_base_dir}/bert_config.json \
+            --vocab_file=\$BERT_MODEL/vocab.txt \
+            --bert_config_file=\$BERT_MODEL/bert_config.json \
             --init_checkpoint=model.ckpt-\$ckpt \
             --layers="${sprobe_layers}" \
             --max_seq_length=96 \
