@@ -294,7 +294,7 @@ process_encodings.py \
     """
 }
 
-encodings.combine(brain_images).set { encodings_brains }
+encodings.combine(brain_images_uncompressed).set { encodings_brains }
 
 /**
  * Learn regression models mapping between brain images and model encodings.
