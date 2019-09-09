@@ -46,7 +46,9 @@ There are only two software requirements:
 1. [Nextflow][4] is used to manage the data processing pipeline. Installing
    Nextflow is as simple as running the following command:
 
-   <code>TODO Nextflow install command</code>
+   ```bash
+   wget -qO- https://get.nextflow.io | bash
+   ```
 
    TODO remark about putting this on your PATH
 2. [Singularity][5] retrieves and runs the software containers necessary for
@@ -61,7 +63,9 @@ The pipeline is otherwise fully automated, so all other dependencies
 Simply run the following command in a clean directory.
 (Downloading this repository is not necessary.)
 
-   nextflow run hans/nn-decoding -r emnlp2019-final
+```bash
+nextflow run hans/nn-decoding -r emnlp2019-final
+```
 
 ### Configuring the pipeline
 
@@ -74,8 +78,10 @@ can be overwritten with a command line flag of the same name. For example, if
 we wanted to run the whole pipeline with BERT models trained for 500 steps
 rather than 250 steps, we could simply execute
 
-   nextflow run hans/nn-decoding -r emnlp2019-final \
-      --finetune_steps 500
+```bash
+nextflow run hans/nn-decoding -r emnlp2019-final \
+  --finetune_steps 500
+```
 
 ### Analysis and visualization
 
@@ -94,7 +100,9 @@ the same directory as you ran the Nextflow pipeline. The notebooks require
 Tensorflow and general Python data science tools to function. I recommend using
 my `tensorflow` Singularity image as follows:
 
-    singularity run library://jon/default/tensorflow:1.12.0-cpu jupyter lab
+```bash
+singularity run library://jon/default/tensorflow:1.12.0-cpu jupyter lab
+```
 
 
 [1]: https://doi.org/10.1038/s41467-018-03068-4
