@@ -73,7 +73,7 @@ process extractBrainData {
     file("*.tar*") from brain_images.collect()
 
     output:
-    file("*", type: "dir") into brain_images_uncompressed
+    file("*") into brain_images_uncompressed
 
     """
 #!/usr/bin/env bash
@@ -96,7 +96,7 @@ process fetchGLUEData {
     label "small"
 
     output:
-    file("GLUE", type: "dir") into glue_data
+    file("GLUE") into glue_data
 
     """
 #!/usr/bin/env bash
@@ -396,7 +396,7 @@ process runStructuralProbe {
     publishDir "${params.outdir}/structural-probe"
 
     input:
-    set ckpt_id, file(encodings) into encodings_sprobe
+    set ckpt_id, file(encodings) from encodings_sprobe
 
     output:
     set ckpt_id, file("dev.uuas"), file("dev.spearman") into sprobe_results
