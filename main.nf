@@ -36,12 +36,6 @@ structural_probe_spec = new Yaml().load((params.structural_probe_spec as File).t
 
 params.outdir = "output"
 
-// TODO make container
-params.bert_container = "library://jon/default/bert:base-gpu"
-params.structural_probes_container = "library://jon/default/structural-probes:latest"
-// TODO make container
-params.decoding_container = "library://jon/default/nn-decoding:emnlp2019"
-
 /////////
 
 glue_tasks = Channel.from("MNLI", "SST", "QQP")
@@ -125,7 +119,7 @@ process finetuneGlue {
 
     """
 #!/bin/bash
-run_classifier.py --task_name=$glue_task \
+python /opt/bert/run_classifier.py --task_name=$glue_task \
     ${finetune_cli_params} \
     --data_dir=${glue_dir}/${glue_task} \
     --learning_rate ${params.finetune_learning_rate} \
@@ -152,7 +146,7 @@ process finetuneSquad {
 
     """
 #!/bin/bash
-run_squad.py \
+python /opt/bert/run_squad.py \
     ${finetune_cli_params} \
     --train_file=${squad_dir}/train-v2.0.json \
     --predict_file=${squad_dir}/dev-v2.0.json \
@@ -194,7 +188,7 @@ process evalSquad {
 echo "model_checkpoint_path: \"model.ckpt-${ckpt_step}\"" > checkpoint
 
 # Run prediction.
-run_squad.py --do_predict \
+python /opt/bert/run_squad.py --do_predict \
     --vocab_file=\$BERT_MODEL/vocab.txt \
     --bert_config_file=\$BERT_MODEL/bert_config.json \
     --init_checkpoint=model.ckpt-${ckpt_step} \
@@ -243,7 +237,7 @@ process extractEncoding {
 #!/bin/bash
 
 for ckpt in ${all_ckpts_str}; do
-    extract_features.py \
+    python /opt/bert/extract_features.py \
         --input_file=${sentences} \
         --output_file=encodings-\$ckpt.jsonl \
         --vocab_file=\$BERT_MODEL/vocab.txt \
@@ -288,7 +282,7 @@ process convertEncoding {
 
     """
 #!/usr/bin/bash
-process_encodings.py \
+python /opt/bert/process_encodings.py \
     -i ${encoding_jsonl} \
     ${modifier_flag} \
     -o ${ckpt_id}.npy
@@ -360,7 +354,7 @@ process extractEncodingForStructuralProbe {
 #!/usr/bin/bash
 for ckpt in ${all_ckpts_str}; do
     for sentence_file in ${sentence_files_str}; do
-        extract_features.py \
+        python /opt/bert/extract_features.py \
             --input_file=\$sentence_file \
             --output_file=encodings-\$ckpt.hdf5 \
             --vocab_file=\$BERT_MODEL/vocab.txt \
