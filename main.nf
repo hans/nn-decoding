@@ -46,14 +46,15 @@ params.decoding_container = "library://jon/default/nn-decoding:emnlp2019"
 
 glue_tasks = Channel.from("MNLI", "SST", "QQP")
 brain_images = Channel.fromPath([
-    "https://www.dropbox.com/s/bdll04a2h4ou4xj/P01.tar?dl=1",
-    "https://www.dropbox.com/s/wetd2gqljfbh8cg/M02.tar?dl=1",
-    "https://www.dropbox.com/s/b7tvvkrhs5g3blc/M04.tar?dl=1",
-    "https://www.dropbox.com/s/izwr74rxn637ilm/M07.tar?dl=1",
+    // Download images for all subjects participating in experiment 2.
+    "https://www.dropbox.com/s/5umg2ktdxvautci/P01.tar?dl=1",
+    "https://www.dropbox.com/s/parmzwl327j0xo4/M02.tar?dl=1",
+    "https://www.dropbox.com/s/4p9sbd0k9sq4t5o/M04.tar?dl=1",
+    "https://www.dropbox.com/s/4gcrrxmg86t5fe2/M07.tar?dl=1",
     "https://www.dropbox.com/s/3q6xhtmj611ibmo/M08.tar?dl=1",
     "https://www.dropbox.com/s/kv1wm2ovvejt9pg/M09.tar?dl=1",
-    "https://www.dropbox.com/s/2h6kmootoruwz52/M14.tar?dl=1",
-    "https://www.dropbox.com/s/u19wdpohr5pzohr/M15.tar?dl=1",
+    "https://www.dropbox.com/s/8i0r88n3oafvsv5/M14.tar?dl=1",
+    "https://www.dropbox.com/s/swc5tvh1ccx81qo/M15.tar?dl=1",
 ])
 
 /**
