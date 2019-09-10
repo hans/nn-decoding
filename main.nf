@@ -391,7 +391,7 @@ process runStructuralProbe {
 
     input:
     set ckpt_id, file(encodings), layer \
-        from encodings_sprobe.combine(Channel.from(structural_probe_layers))
+        from encodings_sprobe_flat.combine(Channel.from(structural_probe_layers))
 
     output:
     set ckpt_id, file("dev.uuas"), file("dev.spearman") into sprobe_results
