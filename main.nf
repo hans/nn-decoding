@@ -196,7 +196,7 @@ python /opt/bert/run_squad.py --do_predict \
     --vocab_file=\$BERT_MODEL/vocab.txt \
     --bert_config_file=\$BERT_MODEL/bert_config.json \
     --init_checkpoint=model.ckpt-${ckpt_step} \
-    --predict_file=${squad_dir}/dev-v2.0.json \
+    --predict_file=dev.json \
     --doc_stride 128 --version_2_with_negative=True \
     --predict_batch_size 32 \
     --output_dir .
