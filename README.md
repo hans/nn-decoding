@@ -18,10 +18,10 @@ reuse our code or otherwise extend our work, please cite our paper:
 
 We structure our data analysis pipeline, from model fine-tuning to
 representation analysis, using [Nextflow][4]. Our entire data analysis pipeline
-is specified in the file [`flow.nf`][TODO].
+is specified in the file [`main.nf`](main.nf).
 
 Visualizations and statistical tests are done in Jupyter notebooks stored in
-the [`notebooks`][TODO] directory.
+the [`notebooks`](notebooks) directory.
 
 ## Running the code
 
@@ -50,7 +50,9 @@ There are only two software requirements:
    wget -qO- https://get.nextflow.io | bash
    ```
 
-   TODO remark about putting this on your PATH
+   This installation script will put a binary `nextflow` in your working
+   directory. The later commands in this README assume that this binary is on
+   your `PATH`.
 2. [Singularity][5] retrieves and runs the software containers necessary for
    the pipeline. It is likely already available on your computing cluster. If
    not, please see the [Singularity installation instructions][6].
@@ -69,11 +71,19 @@ nextflow run hans/nn-decoding -r emnlp2019-final
 
 ### Configuring the pipeline
 
-For **technical configuration** (e.g. customizing how this pipeline will be deployed on a cluster, see the file [`nextflow.config`][7]). The pipeline is configured by default to run locally, but can be easily farmed out across a computing cluster.
-A configuration for the [`SLURM`][8] framework is given in [`nextflow.slurm.config`][8]. If your cluster uses a framework other than SLURM, adapting to it may be as simple as changing a few settings in that file. See the [Nextflow documentation on cluster computing][9] for more information.
+For **technical configuration** (e.g. customizing how this pipeline will be
+deployed on a cluster, see the file [`nextflow.config`](nextflow.config)). The
+pipeline is configured by default to run locally, but can be easily farmed out
+across a computing cluster.
+
+A configuration for the [`SLURM`][6] framework is given in
+[`nextflow.slurm.config`](nextflow.slurm.config). If your cluster uses a
+framework other than SLURM, adapting to it may be as simple as changing a few
+settings in that file. See the [Nextflow documentation on cluster computing][7]
+for more information.
 
 For **model configuration** (e.g. customizing hyperparameters), see the header
-of the main pipeline in [`main.nf`][10]. Each parameter, written as `params.X`,
+of the main pipeline in [`main.nf`](main.nf). Each parameter, written as `params.X`,
 can be overwritten with a command line flag of the same name. For example, if
 we wanted to run the whole pipeline with BERT models trained for 500 steps
 rather than 250 steps, we could simply execute
@@ -106,5 +116,7 @@ singularity run library://jon/default/tensorflow:1.12.0-cpu jupyter lab
 
 
 [1]: https://doi.org/10.1038/s41467-018-03068-4
-[2]: TODO
-[3]: TODO
+[4]: https://www.nextflow.io
+[5]: https://sylabs.io/singularity/
+[6]: https://slurm.schedmd.com/overview.html
+[7]: https://www.nextflow.io/docs/latest/executor.html
