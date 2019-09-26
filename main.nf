@@ -11,7 +11,7 @@ params.finetune_squad_learning_rate = "3e-5"
 finetune_cli_params = """--do_train=true --do_eval=true \
     --bert_config_file=\$BERT_MODEL/bert_config.json \
     --vocab_file=\$BERT_MODEL/vocab.txt \
-    --init_checkpoint=\$BERT_MODEL/model.ckpt \
+    --init_checkpoint=\$BERT_MODEL/bert_model.ckpt \
     --num_train_steps=${params.finetune_steps} \
     --save_checkpoint_steps=${params.finetune_checkpoint_steps} \
     --output_dir ."""
