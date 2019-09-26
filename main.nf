@@ -2,22 +2,16 @@
 
 import org.yaml.snakeyaml.Yaml
 
-params.bert_dir = "/om2/user/jgauthie/others/bert"
-params.bert_base_model = "uncased_L-12_H-768_A-12"
-
 // Finetune parameters
 params.finetune_steps = 250
 params.finetune_checkpoint_steps = 5
 params.finetune_learning_rate = "2e-5"
 params.finetune_squad_learning_rate = "3e-5"
 // CLI params shared across GLUE and SQuAD tasks
-// TODO make sure we can get rid of all references to bert_base_dir
-// so that we can run containerized BERT
-bert_base_dir = [params.bert_dir, "models", params.bert_base_model].join("/")
 finetune_cli_params = """--do_train=true --do_eval=true \
-    --bert_config_file=${bert_base_dir}/bert_config.json \
-    --vocab_file=${bert_base_dir}/vocab.txt \
-    --init_checkpoint=${bert_base_dir}/model.ckpt \
+    --bert_config_file=\$BERT_MODEL/bert_config.json \
+    --vocab_file=\$BERT_MODEL/vocab.txt \
+    --init_checkpoint=\$BERT_MODEL/model.ckpt \
     --num_train_steps=${params.finetune_steps} \
     --save_checkpoint_steps=${params.finetune_checkpoint_steps} \
     --output_dir ."""
@@ -42,63 +36,46 @@ structural_probe_spec = new Yaml().load((params.structural_probe_spec as File).t
 
 params.outdir = "output"
 
-// TODO make container
-params.bert_container = "library://jon/default/bert:small-gpu"
-params.structural_probes_container = "library://jon/default/structural-probes:latest"
-// TODO make container
-params.decoding_container = "library://jon/default/nn-decoding:emnlp2019"
-
 /////////
 
 glue_tasks = Channel.from("MNLI", "SST", "QQP")
+brain_images = Channel.fromPath([
+    // Download images for all subjects participating in experiment 2.
+    "https://www.dropbox.com/s/5umg2ktdxvautci/P01.tar?dl=1",
+    "https://www.dropbox.com/s/parmzwl327j0xo4/M02.tar?dl=1",
+    "https://www.dropbox.com/s/4p9sbd0k9sq4t5o/M04.tar?dl=1",
+    "https://www.dropbox.com/s/4gcrrxmg86t5fe2/M07.tar?dl=1",
+    "https://www.dropbox.com/s/3q6xhtmj611ibmo/M08.tar?dl=1",
+    "https://www.dropbox.com/s/kv1wm2ovvejt9pg/M09.tar?dl=1",
+    "https://www.dropbox.com/s/8i0r88n3oafvsv5/M14.tar?dl=1",
+    "https://www.dropbox.com/s/swc5tvh1ccx81qo/M15.tar?dl=1",
+])
 
 /**
- * Fetch brain image data.
+ * Uncompress brain image data.
  */
-process fetchBrainData {
+process extractBrainData {
     label "small"
     publishDir "${params.outdir}/brains"
 
+    input:
+    file("*.tar*") from brain_images.collect()
+
     output:
-    file("*", type: "dir") into brain_images
+    file("*") into brain_images_uncompressed
 
     """
 #!/usr/bin/env bash
-wget https://www.dropbox.com/s/bdll04a2h4ou4xj/P01.tar?dl=1
-wget https://www.dropbox.com/s/wetd2gqljfbh8cg/M02.tar?dl=1
-wget https://www.dropbox.com/s/b7tvvkrhs5g3blc/M04.tar?dl=1
-wget https://www.dropbox.com/s/izwr74rxn637ilm/M07.tar?dl=1
-wget https://www.dropbox.com/s/3q6xhtmj611ibmo/M08.tar?dl=1
-wget https://www.dropbox.com/s/kv1wm2ovvejt9pg/M09.tar?dl=1
-wget https://www.dropbox.com/s/2h6kmootoruwz52/M14.tar?dl=1
-wget https://www.dropbox.com/s/u19wdpohr5pzohr/M15.tar?dl=1
-
-find . -name '*\?*' | while read -r path; do
-    newpath="${path%\?*}"
-    mv "$path" "$newpath"
-    tar xf "$newpath"
-    rm "$newpath"
+find . -name '*tar*' | while read -r path; do
+    newpath="\${path%.*}"
+    mv "\$path" "\$newpath"
+    tar xf "\$newpath"
+    rm "\$newpath"
 done
     """
 }
 
-/**
- * Fetch sentence data.
- */
-process fetchSentenceData {
-    label "small"
-    publishDir "${params.outdir}/sentences"
-
-    output:
-    file("stimuli_384sentences.txt") as sentence_data
-
-    """
-#!/usr/bin/env bash
-wget https://www.dropbox.com/s/jtqnvzg3jz6dctq/stimuli_384sentences.txt?dl=1
-mv stimuli_384sentences.txt\?dl=1 stimuli_384sentences.txt
-    """
-}
-
+sentence_data = Channel.fromPath("https://www.dropbox.com/s/jtqnvzg3jz6dctq/stimuli_384sentences.txt?dl=1")
 sentence_data.into { sentence_data_for_extraction; sentence_data_for_decoder }
 
 /**
@@ -108,11 +85,11 @@ process fetchGLUEData {
     label "small"
 
     output:
-    file("GLUE", type: "dir") as glue_data
+    file("GLUE") into glue_data
 
     """
 #!/usr/bin/env bash
-# TODO download GLUE data
+download_glue_data.py -d GLUE -t SST,QQP,MNLI
     """
 }
 
@@ -130,7 +107,7 @@ process finetuneGlue {
     publishDir "${params.outdir}/bert"
 
     input:
-    val(glue_task), file(glue_dir) from glue_tasks.combine(glue_data)
+    set val(glue_task), file(glue_dir) from glue_tasks.combine(glue_data)
 
     output:
     set glue_task, "model.ckpt-*" into model_ckpt_files_glue
@@ -142,7 +119,7 @@ process finetuneGlue {
 
     """
 #!/bin/bash
-run_classifier.py --task_name=$glue_task \
+python /opt/bert/run_classifier.py --task_name=$glue_task \
     ${finetune_cli_params} \
     --data_dir=${glue_dir}/${glue_task} \
     --learning_rate ${params.finetune_learning_rate} \
@@ -169,7 +146,7 @@ process finetuneSquad {
 
     """
 #!/bin/bash
-run_squad.py \
+python /opt/bert/run_squad.py \
     ${finetune_cli_params} \
     --train_file=${squad_dir}/train-v2.0.json \
     --predict_file=${squad_dir}/dev-v2.0.json \
@@ -211,9 +188,9 @@ process evalSquad {
 echo "model_checkpoint_path: \"model.ckpt-${ckpt_step}\"" > checkpoint
 
 # Run prediction.
-run_squad.py --do_predict \
-    --vocab_file=${bert_base_dir}/vocab.txt \
-    --bert_config_file=${bert_base_dir}/bert_config.json \
+python /opt/bert/run_squad.py --do_predict \
+    --vocab_file=\$BERT_MODEL/vocab.txt \
+    --bert_config_file=\$BERT_MODEL/bert_config.json \
     --init_checkpoint=model.ckpt-${ckpt_step} \
     --predict_file=${squad_dir}/dev-v2.0.json \
     --doc_stride 128 --version_2_with_negative=True \
@@ -260,11 +237,11 @@ process extractEncoding {
 #!/bin/bash
 
 for ckpt in ${all_ckpts_str}; do
-    extract_features.py \
+    python /opt/bert/extract_features.py \
         --input_file=${sentences} \
         --output_file=encodings-\$ckpt.jsonl \
-        --vocab_file=${bert_base_dir}/vocab.txt \
-        --bert_config_file=${bert_base_dir}/bert_config.json \
+        --vocab_file=\$BERT_MODEL/vocab.txt \
+        --bert_config_file=\$BERT_MODEL/bert_config.json \
         --init_checkpoint=model.ckpt-\$ckpt \
         --layers="${params.extract_encoding_layers}" \
         --max_seq_length=128 \
@@ -305,14 +282,14 @@ process convertEncoding {
 
     """
 #!/usr/bin/bash
-process_encodings.py \
+python /opt/bert/process_encodings.py \
     -i ${encoding_jsonl} \
     ${modifier_flag} \
     -o ${ckpt_id}.npy
     """
 }
 
-encodings.combine(brain_images).set { encodings_brains }
+encodings.combine(brain_images_uncompressed).set { encodings_brains }
 
 /**
  * Learn regression models mapping between brain images and model encodings.
@@ -377,11 +354,11 @@ process extractEncodingForStructuralProbe {
 #!/usr/bin/bash
 for ckpt in ${all_ckpts_str}; do
     for sentence_file in ${sentence_files_str}; do
-        extract_features.py \
+        python /opt/bert/extract_features.py \
             --input_file=\$sentence_file \
             --output_file=encodings-\$ckpt.hdf5 \
-            --vocab_file=${bert_base_dir}/vocab.txt \
-            --bert_config_file=${bert_base_dir}/bert_config.json \
+            --vocab_file=\$BERT_MODEL/vocab.txt \
+            --bert_config_file=\$BERT_MODEL/bert_config.json \
             --init_checkpoint=model.ckpt-\$ckpt \
             --layers="${sprobe_layers}" \
             --max_seq_length=96 \
@@ -400,23 +377,28 @@ encodings_sprobe.flatMap {
 }.set { encodings_sprobe_flat }
 
 /**
- * Train and evaluate structural probe for each checkpoint.
+ * Train and evaluate structural probe for each checkpoint and each layer.
+ */
 process runStructuralProbe {
     label "medium"
     container params.structural_probes_container
     publishDir "${params.outdir}/structural-probe"
 
     input:
-    set ckpt_id, file(encodings) into encodings_sprobe
+    set ckpt_id, file(encodings), layer \
+        from encodings_sprobe_flat.combine(Channel.from(structural_probe_layers))
 
     output:
     set ckpt_id, file("dev.uuas"), file("dev.spearman") into sprobe_results
 
     script:
-    // TODO extract train encoding
-    // TODO extract dev encodings
-    // TODO prepare final YAML spec, save to temporary file
-    yaml_path = null
+    // Copy YAML template
+    spec = new Yaml().load(new Yaml().dump(structural_probe_spec))
+    spec.model.model_layer = layer
+
+    // Save to temporary file.
+    yaml_path = "spec.yaml"
+    writeFile file: yaml_path, text: (new Yaml().dump(spec))
 
     """
 #!/usr/bin/bash
