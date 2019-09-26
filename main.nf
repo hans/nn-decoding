@@ -122,7 +122,7 @@ process finetuneGlue {
     // TODO assert that glue_task exists in glue_dir
 
     """
-#!/bin/bash
+#!/usr/bin/env bash
 python /opt/bert/run_classifier.py --task_name=$glue_task \
     ${finetune_cli_params} \
     --data_dir=${glue_dir}/${glue_task} \
@@ -150,7 +150,7 @@ process finetuneSquad {
     tag "SQuAD"
 
     """
-#!/bin/bash
+#!/usr/bin/env bash
 python /opt/bert/run_squad.py \
     ${finetune_cli_params} \
     --train_file=train.json \
@@ -186,7 +186,7 @@ process evalSquad {
 
     script:
     """
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Output a dummy checkpoint metadata file.
 echo "model_checkpoint_path: \"model.ckpt-${ckpt_step}\"" > checkpoint
@@ -238,7 +238,7 @@ process extractEncoding {
     all_ckpts_str = all_ckpts.join(" ")
 
     """
-#!/bin/bash
+#!/usr/bin/env bash
 
 for ckpt in ${all_ckpts_str}; do
     python /opt/bert/extract_features.py \
@@ -285,7 +285,7 @@ process convertEncoding {
     }
 
     """
-#!/usr/bin/bash
+#!/usr/bin/env bash
 python /opt/bert/process_encodings.py \
     -i ${encoding_jsonl} \
     ${modifier_flag} \
@@ -316,7 +316,7 @@ process learnDecoder {
 
     script:
     """
-#!/bin/bash
+#!/usr/bin/env bash
 python src/learn_decoder.py ${sentences} \
     ${brain_dir} ${encoding} \
     --n_jobs ${params.decoder_n_jobs} \
@@ -355,7 +355,7 @@ process extractEncodingForStructuralProbe {
     sentence_files_str = sentence_files.join(" ")
 
     """
-#!/usr/bin/bash
+#!/usr/bin/env bash
 for ckpt in ${all_ckpts_str}; do
     for sentence_file in ${sentence_files_str}; do
         python /opt/bert/extract_features.py \
@@ -405,7 +405,7 @@ process runStructuralProbe {
     writeFile file: yaml_path, text: (new Yaml().dump(spec))
 
     """
-#!/usr/bin/bash
+#!/usr/bin/env bash
 run_experiment.py --train-probe 1 ${yaml_path}
     """
 }
