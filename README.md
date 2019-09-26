@@ -76,7 +76,7 @@ nextflow run hans/nn-decoding -r emnlp2019-final
 ### Configuring the pipeline
 
 For **technical configuration** (e.g. customizing how this pipeline will be
-deployed on a cluster, see the file [`nextflow.config`](nextflow.config)). The
+deployed on a cluster), see the file [`nextflow.config`](nextflow.config). The
 pipeline is configured by default to run locally, but can be easily farmed out
 across a computing cluster.
 
