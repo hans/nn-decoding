@@ -1,3 +1,7 @@
+# Neural network brain decoding
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 This repository contains analysis code for the paper:
 
 [Linking human and artificial neural representations of language.][3]
