@@ -90,6 +90,7 @@ process fetchGLUEData {
     """
 #!/usr/bin/env bash
 download_glue_data.py -d GLUE -t SST,QQP,MNLI
+cd GLUE && ln -s SST-2 SST
     """
 }
 
