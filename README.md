@@ -102,17 +102,19 @@ nextflow run hans/nn-decoding -r emnlp2019-final \
 The `notebooks` directory contains Jupyter notebooks for producing the
 visualizations and statistical analyses in the paper (and much more):
 
-- `quantitative_dynamic.ipynb` is used to produce the majority of the plots in
-  the paper, studying brain decoding across fine-tuning time in different
-  models.
-- `structural-probes.ipynb` visualizes the structural probe results.
-- `predictions.ipynb` produces, among many other things, the RSA analysis on
-  model representations.
+- [`quantitative_dynamic.ipynb`](notebooks/quantitative_dynamic.ipynb) is used
+  to produce the majority of the plots in the paper, studying brain decoding
+  across fine-tuning time in different models.
+- [`structural-probes.ipynb`](notebooks/structural-probes.ipynb) visualizes the
+  structural probe results.
+- [`predictions.ipynb`](notebooks/predictions.ipynb) produces, among many other
+  things, the RSA analysis on model representations.
 
-You can load and run these notebooks by beginning a Jupyter notebook session in
-the same directory as you ran the Nextflow pipeline. The notebooks require
-Tensorflow and general Python data science tools to function. I recommend using
-my `tensorflow` Singularity image as follows:
+After the Nextflow pipeline completes, you can load and run these notebooks by
+beginning a Jupyter notebook session in the same directory as where you began
+the pipeline.  The notebooks require Tensorflow and general Python data science
+tools to function. I recommend using my `tensorflow` Singularity image as
+follows:
 
 ```bash
 singularity run library://jon/default/tensorflow:1.12.0-cpu jupyter lab
