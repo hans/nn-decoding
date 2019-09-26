@@ -96,7 +96,10 @@ download_glue_data.py -d GLUE -t SST,QQP,MNLI
 /**
  * Fetch the SQuAD dataset.
  */
-Channel.fromPath("TODO SQuAD URL").into { squad_data_for_train; squad_data_for_eval }
+Channel.fromPath("https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v2.0.json").set { squad_train_ch }
+Channel.fromPath("https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v2.0.json").into {
+    squad_dev_for_train_ch; squad_dev_for_eval_ch
+}
 
 /**
  * Fine-tune and evaluate the BERT model on the GLUE datasets (except SQuAD).
@@ -137,7 +140,8 @@ process finetuneSquad {
     publishDir "${params.outdir}/bert"
 
     input:
-    file(squad_dir) from squad_data_for_train
+    file("train.json") from squad_train_ch
+    file("dev.json") from squad_dev_for_train_ch
 
     output:
     set val("SQuAD"), "model.ckpt-*" into model_ckpt_files_squad
@@ -148,9 +152,8 @@ process finetuneSquad {
 #!/bin/bash
 python /opt/bert/run_squad.py \
     ${finetune_cli_params} \
-    --train_file=${squad_dir}/train-v2.0.json \
-    --predict_file=${squad_dir}/dev-v2.0.json \
-    --data_dir=${squad_dir} \
+    --train_file=train.json \
+    --predict_file=dev.json \
     --max_seq_length 384 \
     --train_batch_size 12 \
     --doc_stride 128 \
@@ -174,8 +177,8 @@ process evalSquad {
     publishDir "${params.outdir}/eval_squad"
 
     input:
-    set ckpt_step, file(ckpt_files), file(squad_dir) \
-        from squad_eval_ckpts.combine(squad_data_for_eval)
+    set ckpt_step, file(ckpt_files), file("dev.json") \
+        from squad_eval_ckpts.combine(squad_dev_for_eval_ch)
 
     output:
     set val("step ${ckpt_step}"), file("predictions.json"), file("null_odds.json"), file("results.json") into squad_eval_results
@@ -198,7 +201,7 @@ python /opt/bert/run_squad.py --do_predict \
     --output_dir .
 
 # Evaluate using SQuAD tools.
-python ${squad_dir}/evaluate-v2.0.py ${squad_dir}/dev-v2.0.json \
+eval_squad.py dev.json \
     predictions.json --na-prob-file null_odds.json > results.json
     """
 }
