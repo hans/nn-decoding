@@ -1,8 +1,8 @@
 This repository contains analysis code for the paper:
 
-[Linking human and artificial neural representations of language.][3] Jon
-Gauthier and Roger P. Levy. [2019 Conference on Empirical Methods in Natural
-Language Processing][2].
+[Linking human and artificial neural representations of language.][3]
+Jon Gauthier and Roger P. Levy.
+[2019 Conference on Empirical Methods in Natural Language Processing][2].
 
 This repository is open-source under the MIT License. If you would like to
 reuse our code or otherwise extend our work, please cite our paper:
@@ -10,7 +10,7 @@ reuse our code or otherwise extend our work, please cite our paper:
      @inproceedings{gauthier2019linking,
        title={Linking human and artificial neural representations of language},
        author={Gauthier, Jon and Levy, Roger P.},
-       booktitle={TODO},
+       booktitle={Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing},
        year={2019}
      }
 
@@ -116,6 +116,8 @@ singularity run library://jon/default/tensorflow:1.12.0-cpu jupyter lab
 
 
 [1]: https://doi.org/10.1038/s41467-018-03068-4
+[2]: https://www.emnlp-ijcnlp2019.org
+[3]: TODO
 [4]: https://www.nextflow.io
 [5]: https://sylabs.io/singularity/
 [6]: https://slurm.schedmd.com/overview.html
