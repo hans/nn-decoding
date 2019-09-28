@@ -109,6 +109,7 @@ process finetuneGlue {
     label "gpu_large"
     container params.bert_container
     publishDir "${params.outdir}/bert"
+    // TODO condition above on glue_task
 
     input:
     set val(glue_task), file(glue_dir) from glue_tasks.combine(glue_data)
@@ -176,6 +177,7 @@ process evalSquad {
     label "gpu_medium"
     container params.bert_container
     publishDir "${params.outdir}/eval_squad"
+    // TODO condition above on ckpt_step
 
     input:
     set ckpt_step, file(ckpt_files), file("dev.json") \
@@ -273,6 +275,7 @@ process convertEncoding {
     label "medium"
     container params.bert_container
     publishDir "${params.outdir}/encodings"
+    // TODO condition above on ckpt_id
 
     input:
     set ckpt_id, file(encoding_jsonl) from encodings_jsonl_flat
@@ -308,6 +311,7 @@ process learnDecoder {
     container params.decoding_container
 
     publishDir "${params.outdir}/decoders"
+    // TODO condition above on ckpt_id
     cpus params.decoder_n_jobs
 
     input:
@@ -387,7 +391,7 @@ process runStructuralProbe {
     label "medium"
     container params.structural_probes_container
     tag "${ckpt_id}"
-    publishDir "${params.outdir}/structural-probe/${ckpt_id}"
+    publishDir "${params.outdir}/structural-probe/${ckpt_id_str}"
 
     input:
     set ckpt_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5"), \
@@ -401,6 +405,8 @@ process runStructuralProbe {
     set ckpt_id, file("dev.uuas"), file("dev.spearmanr") into sprobe_results
 
     script:
+    ckpt_id_str = ckpt_id.join("-")
+
     // Copy YAML template
     spec = new Yaml().load(new Yaml().dump(structural_probe_spec))
 
