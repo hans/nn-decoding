@@ -255,10 +255,15 @@ done
 }
 
 // Expand jsonl encodings into individual identifier + jsonl files
+// (one item per task-run-step)
 encodings_jsonl.flatMap {
-    els -> els[1].collect {
-        f -> [[els[0], (f.name =~ /-(\d+).jsonl/)[0][1]].join("-"), f]
-    }
+    els ->
+        // It's possible there was just one checkpoint, in which case the
+        // output won't be a collection. Make sure it is.
+        fileList = (els[1] instanceof Collection ? els[1] : [els[1]])
+        fileList.collect {
+            f -> [[els[0], (f.name =~ /-(\d+).jsonl/)[0][1]].join("-"), f]
+        }
 }.set { encodings_jsonl_flat }
 
 /**
@@ -371,6 +376,10 @@ done
     """
 }
 
+sprobe_train_conll_ch = Channel.fromPath(params.structural_probe_train_conll_path)
+sprobe_dev_conll_ch = Channel.fromPath(params.structural_probe_dev_conll_path)
+sprobe_test_conll_ch = Channel.fromPath(params.structural_probe_dev_conll_path)
+
 /**
  * Train and evaluate structural probe for each checkpoint and each layer.
  */
@@ -380,25 +389,43 @@ process runStructuralProbe {
     publishDir "${params.outdir}/structural-probe"
 
     input:
-    set ckpt_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5"), layer \
-        from encodings_sprobe.combine(Channel.from(structural_probe_layers))
+    set ckpt_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5"), \
+        file(train_conll), file(dev_conll), \
+        layer \
+        from encodings_sprobe.combine(sprobe_train_conll_ch) \
+                             .combine(sprobe_dev_conll_ch) \
+                             .combine(Channel.from(structural_probe_layers))
 
     output:
-    set ckpt_id, file("dev.uuas"), file("dev.spearman") into sprobe_results
+    set ckpt_id, file("dev.uuas"), file("dev.spearmanr") into sprobe_results
+
+    tag "${ckpt_id}"
 
     script:
     // Copy YAML template
     spec = new Yaml().load(new Yaml().dump(structural_probe_spec))
-    spec.model.model_layer = layer
 
-    // Save to temporary file.
-    yaml_path = "spec.yaml"
-    yaml_f = file(yaml_path)
-    yaml_f.text = new Yaml().dump(spec)
+    spec.model.model_layer = layer as int
+
+    spec.dataset.corpus.root = "."
+    spec.dataset.corpus.train_path = train_conll.getName()
+    spec.dataset.corpus.dev_path = dev_conll.getName()
+    spec.dataset.corpus.test_path = dev_conll.getName()
+
+    spec.dataset.embeddings.train_path = "encodings-train.hdf5"
+    spec.dataset.embeddings.dev_path = "encodings-dev.hdf5"
+    spec.dataset.embeddings.test_path = "encodings-dev.hdf5"
+
+    // Prepare to save to temporary file.
+    yaml_spec_text = new Yaml().dump(spec)
 
     """
 #!/usr/bin/env bash
+cat <<EOF > spec.yaml
+${yaml_spec_text}
+EOF
+
 /opt/conda/bin/python /opt/structural-probes/structural-probes/run_experiment.py \
-    --train-probe 1 ${yaml_path}
+    --train-probe 1 --results-dir . spec.yaml
     """
 }
