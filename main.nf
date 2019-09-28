@@ -327,6 +327,9 @@ python src/learn_decoder.py ${sentences} \
     """
 }
 
+sprobe_train_ch = Channel.fromPath(params.structural_probe_train_path)
+sprobe_dev_ch = Channel.fromPath(params.structural_probe_dev_path)
+
 /**
  * Extract encodings for structural probe analysis (expects hdf5 format).
  */
@@ -335,10 +338,11 @@ process extractEncodingForStructuralProbe {
     container params.bert_container
 
     input:
-    set run_id, file(ckpt_files) from model_ckpts_for_sprobe
+    set run_id, file(ckpt_files), file("train.txt"), file("dev.txt") \
+        from model_ckpts_for_sprobe.combine(sprobe_train_ch).combine(sprobe_dev_ch)
 
     output:
-    set run_id, "encodings-*.hdf5" into encodings_sprobe
+    set run_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5") into encodings_sprobe
 
     tag "${run_id}"
 
@@ -347,20 +351,14 @@ process extractEncodingForStructuralProbe {
     all_ckpts_str = all_ckpts.join(" ")
     sprobe_layers = structural_probe_layers.join(",")
 
-    // We need to extract encodings for separate train and dev sentences.
-    sentence_files = [
-        params.structural_probe_train_path,
-        params.structural_probe_dev_path,
-    ]
-    sentence_files_str = sentence_files.join(" ")
-
     """
 #!/usr/bin/env bash
 for ckpt in ${all_ckpts_str}; do
-    for sentence_file in ${sentence_files_str}; do
+    for split in train dev; do
+        ls -lh
         python /opt/bert/extract_features.py \
-            --input_file=\$sentence_file \
-            --output_file=encodings-\$ckpt.hdf5 \
+            --input_file=\$split.txt \
+            --output_file=encodings-\$split.hdf5 \
             --vocab_file=\$BERT_MODEL/vocab.txt \
             --bert_config_file=\$BERT_MODEL/bert_config.json \
             --init_checkpoint=model.ckpt-\$ckpt \
@@ -373,13 +371,6 @@ done
     """
 }
 
-// Expand hdf5 encodings into individual identifier + hdf5 files
-encodings_sprobe.flatMap {
-    els -> els[1].collect {
-        fs -> [[els[0], (f.name =~ /-(\d+).jsonl/)[0][1]].join("-"), fs]
-    }
-}.set { encodings_sprobe_flat }
-
 /**
  * Train and evaluate structural probe for each checkpoint and each layer.
  */
@@ -389,8 +380,8 @@ process runStructuralProbe {
     publishDir "${params.outdir}/structural-probe"
 
     input:
-    set ckpt_id, file(encodings), layer \
-        from encodings_sprobe_flat.combine(Channel.from(structural_probe_layers))
+    set ckpt_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5"), layer \
+        from encodings_sprobe.combine(Channel.from(structural_probe_layers))
 
     output:
     set ckpt_id, file("dev.uuas"), file("dev.spearman") into sprobe_results
@@ -402,10 +393,12 @@ process runStructuralProbe {
 
     // Save to temporary file.
     yaml_path = "spec.yaml"
-    writeFile file: yaml_path, text: (new Yaml().dump(spec))
+    yaml_f = file(yaml_path)
+    yaml_f.text = new Yaml().dump(spec)
 
     """
 #!/usr/bin/env bash
-run_experiment.py --train-probe 1 ${yaml_path}
+/opt/conda/bin/python /opt/structural-probes/structural-probes/run_experiment.py \
+    --train-probe 1 ${yaml_path}
     """
 }
