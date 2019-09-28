@@ -386,7 +386,8 @@ sprobe_test_conll_ch = Channel.fromPath(params.structural_probe_dev_conll_path)
 process runStructuralProbe {
     label "medium"
     container params.structural_probes_container
-    publishDir "${params.outdir}/structural-probe"
+    tag "${ckpt_id}"
+    publishDir "${params.outdir}/structural-probe/${ckpt_id}"
 
     input:
     set ckpt_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5"), \
@@ -398,8 +399,6 @@ process runStructuralProbe {
 
     output:
     set ckpt_id, file("dev.uuas"), file("dev.spearmanr") into sprobe_results
-
-    tag "${ckpt_id}"
 
     script:
     // Copy YAML template
