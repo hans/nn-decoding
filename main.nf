@@ -32,6 +32,13 @@ structural_probe_layers = params.structural_probe_layers.split(",")
 params.structural_probe_spec = "structural-probes/spec.yaml"
 structural_probe_spec = new Yaml().load((params.structural_probe_spec as File).text)
 
+// TODO generalize
+params.structural_probe_train_path = "structural-probes/en_ewt-ud/en_ewt-ud-train.txt"
+params.structural_probe_dev_path = "structural-probes/en_ewt-ud/en_ewt-ud-dev.txt"
+params.structural_probe_train_conll_path = "structural-probes/en_ewt-ud/en_ewt-ud-train.conllu"
+params.structural_probe_dev_conll_path = "structural-probes/en_ewt-ud/en_ewt-ud-dev.conllu"
+
+
 /////////
 
 params.outdir = "output"
@@ -108,8 +115,7 @@ Channel.fromPath("https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v2.0.js
 process finetuneGlue {
     label "gpu_large"
     container params.bert_container
-    publishDir "${params.outdir}/bert"
-    // TODO condition above on glue_task
+    publishDir "${params.outdir}/bert/${glue_task}"
 
     input:
     set val(glue_task), file(glue_dir) from glue_tasks.combine(glue_data)
@@ -176,8 +182,7 @@ squad_for_eval.flatMap { ckpt_id -> ckpt_id[1].collect {
 process evalSquad {
     label "gpu_medium"
     container params.bert_container
-    publishDir "${params.outdir}/eval_squad"
-    // TODO condition above on ckpt_step
+    publishDir "${params.outdir}/eval_squad/${ckpt_step}"
 
     input:
     set ckpt_step, file(ckpt_files), file("dev.json") \
@@ -211,7 +216,7 @@ eval_squad.py dev.json \
 
 model_ckpt_files_glue.concat(squad_for_extraction).set { model_ckpt_files }
 
-// Group model checkpoints based on their prefix.
+// Group model checkpoints by keys `(<model>, <step>)`.
 model_ckpt_files
     .flatMap { ckpt_id -> ckpt_id[1].collect {
         file -> tuple(tuple(ckpt_id[0], (file.name =~ /^model.ckpt-(\d+)/)[0][1]),
@@ -233,9 +238,11 @@ process extractEncoding {
     output:
     set run_id, "encodings*.jsonl" into encodings_jsonl
 
-    tag "${run_id}"
+    tag "${run_id_str}"
 
     script:
+    run_id_str = run_id.join("-")
+
     all_ckpts = ckpt_files.target.collect { (it.name =~ /^model.ckpt-(\d+)/)[0][1] }.unique()
     all_ckpts_str = all_ckpts.join(" ")
 
@@ -264,7 +271,7 @@ encodings_jsonl.flatMap {
         // output won't be a collection. Make sure it is.
         fileList = (els[1] instanceof Collection ? els[1] : [els[1]])
         fileList.collect {
-            f -> [[els[0], (f.name =~ /-(\d+).jsonl/)[0][1]].join("-"), f]
+            f -> [els[0], f]
         }
 }.set { encodings_jsonl_flat }
 
@@ -274,18 +281,18 @@ encodings_jsonl.flatMap {
 process convertEncoding {
     label "medium"
     container params.bert_container
-    publishDir "${params.outdir}/encodings"
-    // TODO condition above on ckpt_id
+    tag "${ckpt_id_str}"
+    publishDir "${params.outdir}/encodings/${ckpt_id_str}"
 
     input:
     set ckpt_id, file(encoding_jsonl) from encodings_jsonl_flat
 
     output:
-    set ckpt_id, "*.npy" into encodings
-
-    tag "${ckpt_id}"
+    set ckpt_id, file("*.npy") into encodings
 
     script:
+    ckpt_id_str = ckpt_id.join("-")
+
     if (params.extract_encoding_cls) {
         modifier_flag = "-c"
     } else {
@@ -297,11 +304,11 @@ process convertEncoding {
 python /opt/bert/process_encodings.py \
     -i ${encoding_jsonl} \
     ${modifier_flag} \
-    -o ${ckpt_id}.npy
+    -o ${ckpt_id_str}.npy
     """
 }
 
-encodings.combine(brain_images_uncompressed).set { encodings_brains }
+encodings.combine(brain_images_uncompressed.flatten()).set { encodings_brains }
 
 /**
  * Learn regression models mapping between brain images and model encodings.
@@ -310,8 +317,7 @@ process learnDecoder {
     label "medium"
     container params.decoding_container
 
-    publishDir "${params.outdir}/decoders"
-    // TODO condition above on ckpt_id
+    publishDir "${params.outdir}/decoders/${tag_str}"
     cpus params.decoder_n_jobs
 
     input:
@@ -319,18 +325,20 @@ process learnDecoder {
     file(sentences) from sentence_data_for_decoder
 
     output:
-    file "${ckpt_id}-*"
+    set file("decoder.csv"), file("decoder.pred.npy")
 
-    tag "${ckpt_id}-${brain_dir.name}"
+    tag "${tag_str}"
 
     script:
+    ckpt_id_str = ckpt_id.join("-")
+    tag_str = "${ckpt_id_str}-${brain_dir.name}"
     """
 #!/usr/bin/env bash
-python src/learn_decoder.py ${sentences} \
+python /opt/nn-decoding/src/learn_decoder.py ${sentences} \
     ${brain_dir} ${encoding} \
     --n_jobs ${params.decoder_n_jobs} \
     --n_folds ${params.decoder_n_folds} \
-    --out_prefix "${ckpt_id}-${brain_dir.name}" \
+    --out_prefix decoder \
     --encoding_project ${params.decoder_projection} \
     --image_project ${params.brain_projection}
     """
@@ -351,11 +359,13 @@ process extractEncodingForStructuralProbe {
         from model_ckpts_for_sprobe.combine(sprobe_train_ch).combine(sprobe_dev_ch)
 
     output:
-    set run_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5") into encodings_sprobe
+    set run_id, file("encodings-*-train.hdf5"), file("encodings-*-dev.hdf5") into encodings_sprobe
 
-    tag "${run_id}"
+    tag "${run_id_str}"
 
     script:
+    run_id_str = run_id.join("-")
+
     all_ckpts = ckpt_files.collect { (it.name =~ /^model.ckpt-(\d+)/)[0][1] }.unique()
     all_ckpts_str = all_ckpts.join(" ")
     sprobe_layers = structural_probe_layers.join(",")
@@ -380,6 +390,25 @@ done
     """
 }
 
+// Expand hdf5 encodings (grouped per model run) into individual hdf5 file pairs
+// (train and dev), grouped by model-run-step
+encodings_sprobe.flatMap {
+    els ->
+        fileList = (els[1] instanceof Collection ? els[1] : [els[1]])
+        fileList[1].collect {
+            fs -> fs.collect { f -> [els[0].join("-"), f] }
+        }
+}.set { encodings_sprobe_flat }
+
+// Now within each channel, order hdf5 by train / dev / etc.
+encodings_sprobe_flat.collect {
+    el ->
+        log.error(el.toString())
+        [el[0], el[1].groupBy { f -> (f.name =~ /-(\w+).hdf5/)[0][1] }]
+}.collect {
+    el -> [el[0], el[1].train, el[1].dev]
+}.set { encodings_sprobe_readable }
+
 sprobe_train_conll_ch = Channel.fromPath(params.structural_probe_train_conll_path)
 sprobe_dev_conll_ch = Channel.fromPath(params.structural_probe_dev_conll_path)
 sprobe_test_conll_ch = Channel.fromPath(params.structural_probe_dev_conll_path)
@@ -390,16 +419,17 @@ sprobe_test_conll_ch = Channel.fromPath(params.structural_probe_dev_conll_path)
 process runStructuralProbe {
     label "medium"
     container params.structural_probes_container
-    tag "${ckpt_id}"
+    tag "${ckpt_id_str}"
     publishDir "${params.outdir}/structural-probe/${ckpt_id_str}"
 
     input:
     set ckpt_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5"), \
         file(train_conll), file(dev_conll), \
         layer \
-        from encodings_sprobe.combine(sprobe_train_conll_ch) \
-                             .combine(sprobe_dev_conll_ch) \
-                             .combine(Channel.from(structural_probe_layers))
+        from encodings_sprobe_readable \
+            .combine(sprobe_train_conll_ch) \
+            .combine(sprobe_dev_conll_ch) \
+            .combine(Channel.from(structural_probe_layers))
 
     output:
     set ckpt_id, file("dev.uuas"), file("dev.spearmanr") into sprobe_results

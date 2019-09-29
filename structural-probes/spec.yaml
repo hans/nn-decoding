@@ -19,9 +19,9 @@ dataset:
   embeddings:
     type: token #{token,subword}
     root: .
-    train_path: train.hdf5
-    dev_path: dev.hdf5
-    test_path: test.hdf5
+    train_path: encodings-train.hdf5
+    dev_path: encodings-dev.hdf5
+    test_path: encodings-test.hdf5
   batch_size: 40
 model:
   hidden_dim: 768
