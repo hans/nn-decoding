@@ -13,7 +13,7 @@ finetune_cli_params = """--do_train=true --do_eval=true \
     --vocab_file=\$BERT_MODEL/vocab.txt \
     --init_checkpoint=\$BERT_MODEL/bert_model.ckpt \
     --num_train_steps=${params.finetune_steps} \
-    --save_checkpoint_steps=${params.finetune_checkpoint_steps} \
+    --save_checkpoints_steps=${params.finetune_checkpoint_steps} \
     --output_dir ."""
 
 // Encoding extraction parameters.
