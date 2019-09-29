@@ -374,10 +374,9 @@ process extractEncodingForStructuralProbe {
 #!/usr/bin/env bash
 for ckpt in ${all_ckpts_str}; do
     for split in train dev; do
-        ls -lh
         python /opt/bert/extract_features.py \
             --input_file=\$split.txt \
-            --output_file=encodings-\$split.hdf5 \
+            --output_file=encodings-\$ckpt-\$split.hdf5 \
             --vocab_file=\$BERT_MODEL/vocab.txt \
             --bert_config_file=\$BERT_MODEL/bert_config.json \
             --init_checkpoint=model.ckpt-\$ckpt \
