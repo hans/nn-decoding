@@ -145,7 +145,7 @@ python /opt/bert/run_classifier.py --task_name=$glue_task \
 process finetuneSquad {
     label "gpu_large"
     container params.bert_container
-    publishDir "${params.outdir}/bert"
+    publishDir "${params.outdir}/bert/squad"
 
     input:
     file("train.json") from squad_train_ch
