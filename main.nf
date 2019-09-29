@@ -3,6 +3,7 @@
 import org.yaml.snakeyaml.Yaml
 
 // Finetune parameters
+params.finetune_runs = 1
 params.finetune_steps = 250
 params.finetune_checkpoint_steps = 5
 params.finetune_learning_rate = "2e-5"
@@ -42,6 +43,26 @@ params.structural_probe_dev_conll_path = "structural-probes/en_ewt-ud/en_ewt-ud-
 /////////
 
 params.outdir = "output"
+
+def get_checkpoint_num = { checkpoint_f ->
+    (checkpoint_f.name =~ /^model.ckpt-(\d+)/)[0][1] as int
+}
+
+// Given a channel of checkpoints grouped by `(model, run) => fs`, where fs are
+// per-step checkpoint files, flatten to a channel of checkpoints grouped by
+// `(model, run, step) => f`, where `f` is an individual checkpoint file.
+def flatten_checkpoint_channel = { ch ->
+    ch.flatMap {
+        output ->
+            run_id = output[0]
+            files = (output[1] instanceof Collection ? output[1] : [output[1]])
+            files.collect { f ->
+                step_num = get_checkpoint_num(f)
+                step_id = run_id + [step_num]
+                [step_id, f]
+            }
+    }
+}
 
 /////////
 
@@ -115,17 +136,20 @@ Channel.fromPath("https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v2.0.js
 process finetuneGlue {
     label "gpu_large"
     container params.bert_container
-    publishDir "${params.outdir}/bert/${glue_task}"
+    publishDir "${params.outdir}/bert/${run_id_str}"
+    tag "${run_id_str}"
 
     input:
-    set val(glue_task), file(glue_dir) from glue_tasks.combine(glue_data)
+    val glue_task from glue_tasks
+    each file(glue_dir) from glue_data
+    each run from Channel.from(1..params.finetune_runs)
 
     output:
-    set glue_task, "model.ckpt-*" into model_ckpt_files_glue
-
-    tag "$glue_task"
+    set run_id, file("model.ckpt-*") into model_ckpt_files_glue
 
     script:
+    run_id = [glue_task, run]
+    run_id_str = run_id.join("-")
     // TODO assert that glue_task exists in glue_dir
 
     """
@@ -145,16 +169,21 @@ python /opt/bert/run_classifier.py --task_name=$glue_task \
 process finetuneSquad {
     label "gpu_large"
     container params.bert_container
-    publishDir "${params.outdir}/bert/squad"
+    publishDir "${params.outdir}/bert/${run_id}"
+    tag "${run_id}"
 
     input:
     file("train.json") from squad_train_ch
     file("dev.json") from squad_dev_for_train_ch
+    each run from Channel.from(1..params.finetune_runs)
 
     output:
-    set val("SQuAD"), "model.ckpt-*" into model_ckpt_files_squad
+    set val(run_id), file("model.ckpt-*") into model_ckpt_files_squad
 
-    tag "SQuAD"
+
+    script:
+    run_id = ["SQuAD", run]
+    run_id_str = run_id.join("-")
 
     """
 #!/usr/bin/env bash
@@ -175,23 +204,35 @@ model_ckpt_files_squad.into { squad_for_eval; squad_for_extraction }
 /**
  * Run evaluation for the SQuAD fine-tuned models.
  */
-// Group SQuAD checkpoints based on their prefix.
-squad_for_eval.flatMap { ckpt_id -> ckpt_id[1].collect {
-    file -> tuple((file.name =~ /^model.ckpt-(\d+)/)[0][1], file)
-} }.groupTuple().set { squad_eval_ckpts }
+// Group SQuAD checkpoints based on their run-step.
+squad_for_eval.flatMap {
+    output ->
+        run_id = output[0]
+        files = output[1]
+        files.collect {
+            f ->
+                step_num = get_checkpoint_num(f)
+                step_id = run_id + [step_num]
+                tuple(step_id, f)
+        }
+}.groupTuple().set { squad_eval_ckpts }
+
 process evalSquad {
     label "gpu_medium"
     container params.bert_container
-    publishDir "${params.outdir}/eval_squad/${ckpt_step}"
+    publishDir "${params.outdir}/eval_squad/${ckpt_id_str}"
+    tag "${ckpt_id_str}"
 
     input:
-    set ckpt_step, file(ckpt_files), file("dev.json") \
+    set ckpt_id, file(ckpt_files), file("dev.json") \
         from squad_eval_ckpts.combine(squad_dev_for_eval_ch)
 
     output:
-    set val("step ${ckpt_step}"), file("predictions.json"), file("null_odds.json"), file("results.json") into squad_eval_results
+    set ckpt_id, file("predictions.json"), file("null_odds.json"), file("results.json") into squad_eval_results
 
     script:
+    ckpt_id_str = ckpt_id.join("-")
+
     """
 #!/usr/bin/env bash
 
@@ -214,15 +255,21 @@ eval_squad.py dev.json \
     """
 }
 
-model_ckpt_files_glue.concat(squad_for_extraction).set { model_ckpt_files }
 
-// Group model checkpoints by keys `(<model>, <step>)`.
-model_ckpt_files
-    .flatMap { ckpt_id -> ckpt_id[1].collect {
-        file -> tuple(tuple(ckpt_id[0], (file.name =~ /^model.ckpt-(\d+)/)[0][1]),
-                      file) } }
-    .groupTuple()
-    .into { model_ckpts_for_decoder; model_ckpts_for_sprobe }
+// Concatenate GLUE results with SQuAD results.
+// Each channel item is grouped by key `(<model>, <run>)`.
+model_ckpt_files_glue.concat(squad_for_extraction) \
+        .into { model_ckpts_for_decoder; model_ckpts_for_sprobe }
+
+/* // Group model checkpoints by keys `(<model>, <run>)`. */
+/* model_ckpt_files.flatMap { output -> */
+/*     run_id = output[0] */
+/*     files = output[1] */
+/*     files.collect { f -> */
+/*         tuple(tuple(ckpt_id[0], (file.name =~ /^model.ckpt-(\d+)/)[0][1]), */
+/*                       file) } } */
+/*     .groupTuple() */
+/*     .into { model_ckpts_for_decoder; model_ckpts_for_sprobe } */
 
 /**
  * Extract .jsonl sentence encodings from each fine-tuned model.
@@ -232,18 +279,18 @@ process extractEncoding {
     container params.bert_container
 
     input:
-    set run_id, file(ckpt_files), file(sentences) \
-        from model_ckpts_for_decoder.combine(sentence_data_for_extraction)
+    set run_id, file(ckpt_files) from model_ckpts_for_decoder
+    each file(sentences) from sentence_data_for_extraction
 
     output:
-    set run_id, "encodings*.jsonl" into encodings_jsonl
+    set run_id, file("encodings*.jsonl") into encodings_jsonl
 
     tag "${run_id_str}"
 
     script:
     run_id_str = run_id.join("-")
 
-    all_ckpts = ckpt_files.target.collect { (it.name =~ /^model.ckpt-(\d+)/)[0][1] }.unique()
+    all_ckpts = ckpt_files.target.collect(get_checkpoint_num).unique()
     all_ckpts_str = all_ckpts.join(" ")
 
     """
@@ -265,15 +312,7 @@ done
 
 // Expand jsonl encodings into individual identifier + jsonl files
 // (one item per task-run-step)
-encodings_jsonl.flatMap {
-    els ->
-        // It's possible there was just one checkpoint, in which case the
-        // output won't be a collection. Make sure it is.
-        fileList = (els[1] instanceof Collection ? els[1] : [els[1]])
-        fileList.collect {
-            f -> [els[0], f]
-        }
-}.set { encodings_jsonl_flat }
+encodings_jsonl_flat = flatten_checkpoint_channel(encodings_jsonl)
 
 /**
  * Convert .jsonl encodings to easier-to-use numpy arrays, saved as .npy
@@ -322,7 +361,7 @@ process learnDecoder {
 
     input:
     set ckpt_id, file(encoding), file(brain_dir) from encodings_brains
-    file(sentences) from sentence_data_for_decoder
+    each file(sentences) from sentence_data_for_decoder
 
     output:
     set file("decoder.csv"), file("decoder.pred.npy")
@@ -353,20 +392,22 @@ sprobe_dev_ch = Channel.fromPath(params.structural_probe_dev_path)
 process extractEncodingForStructuralProbe {
     label "gpu_medium"
     container params.bert_container
+    tag "${run_id_str}"
 
     input:
     set run_id, file(ckpt_files), file("train.txt"), file("dev.txt") \
-        from model_ckpts_for_sprobe.combine(sprobe_train_ch).combine(sprobe_dev_ch)
+        from model_ckpts_for_sprobe
+    each file("train.txt") from sprobe_train_ch
+    each file("dev.txt") from sprobe_dev_ch
 
     output:
-    set run_id, file("encodings-*-train.hdf5"), file("encodings-*-dev.hdf5") into encodings_sprobe
-
-    tag "${run_id_str}"
+    set run_id, file("encodings-*-train.hdf5"), file("encodings-*-dev.hdf5") \
+        into encodings_sprobe
 
     script:
     run_id_str = run_id.join("-")
 
-    all_ckpts = ckpt_files.collect { (it.name =~ /^model.ckpt-(\d+)/)[0][1] }.unique()
+    all_ckpts = ckpt_files.collect(get_checkpoint_num).unique()
     all_ckpts_str = all_ckpts.join(" ")
     sprobe_layers = structural_probe_layers.join(",")
 
@@ -391,13 +432,7 @@ done
 
 // Expand hdf5 encodings (grouped per model run) into individual hdf5 file pairs
 // (train and dev), grouped by model-run-step
-encodings_sprobe.flatMap {
-    els ->
-        fileList = (els[1] instanceof Collection ? els[1] : [els[1]])
-        fileList[1].collect {
-            fs -> fs.collect { f -> [els[0].join("-"), f] }
-        }
-}.set { encodings_sprobe_flat }
+encodings_sprobe_flat = flatten_checkpoint_channel(encodings_sprobe)
 
 // Now within each channel, order hdf5 by train / dev / etc.
 encodings_sprobe_flat.collect {
@@ -422,13 +457,11 @@ process runStructuralProbe {
     publishDir "${params.outdir}/structural-probe/${ckpt_id_str}"
 
     input:
-    set ckpt_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5"), \
-        file(train_conll), file(dev_conll), \
-        layer \
-        from encodings_sprobe_readable \
-            .combine(sprobe_train_conll_ch) \
-            .combine(sprobe_dev_conll_ch) \
-            .combine(Channel.from(structural_probe_layers))
+    set ckpt_id, file("encodings-train.hdf5"), file("encodings-dev.hdf5") \
+        from encodings_sprobe_readable
+    each file(train_conll) from sprobe_train_conll_ch
+    each file(dev_conll) from sprobe_dev_conll_ch
+    each layer from Channel.from(structural_probe_layers)
 
     output:
     set ckpt_id, file("dev.uuas"), file("dev.spearmanr") into sprobe_results
