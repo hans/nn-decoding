@@ -436,12 +436,12 @@ done
 encodings_sprobe_flat = flatten_checkpoint_channel(encodings_sprobe)
 
 // Now within each channel, order hdf5 by train / dev / etc.
-encodings_sprobe_flat.collect {
+encodings_sprobe_flat.map {
+    el -> [el[0], el[1].groupBy { f -> (f.name =~ /-(\w+).hdf5/)[0][1] }]
+}.map {
     el ->
         log.error(el.toString())
-        [el[0], el[1].groupBy { f -> (f.name =~ /-(\w+).hdf5/)[0][1] }]
-}.collect {
-    el -> [el[0], el[1].train, el[1].dev]
+        [el[0], el[1].train, el[1].dev]
 }.set { encodings_sprobe_readable }
 
 sprobe_train_conll_ch = Channel.fromPath(params.structural_probe_train_conll_path)
