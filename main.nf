@@ -45,7 +45,7 @@ params.structural_probe_dev_conll_path = "structural-probes/en_ewt-ud/en_ewt-ud-
 params.outdir = "output"
 
 def get_checkpoint_num = { checkpoint_f ->
-    (checkpoint_f.name =~ /^model.ckpt-(\d+)/)[0][1] as int
+    (checkpoint_f.name =~ /-step(\d+)/)[0][1] as int
 }
 
 // Given a channel of checkpoints grouped by `(model, run) => fs`, where fs are
@@ -61,7 +61,7 @@ def flatten_checkpoint_channel = { ch ->
                 step_id = run_id + [step_num]
                 [step_id, f]
             }
-    }
+    }.groupTuple()
 }
 
 /////////
@@ -145,7 +145,7 @@ process finetuneGlue {
     each run from Channel.from(1..params.finetune_runs)
 
     output:
-    set run_id, file("model.ckpt-*") into model_ckpt_files_glue
+    set run_id, file("model.ckpt-step*") into model_ckpt_files_glue
 
     script:
     run_id = [glue_task, run]
@@ -159,7 +159,13 @@ python /opt/bert/run_classifier.py --task_name=$glue_task \
     --data_dir=${glue_dir}/${glue_task} \
     --learning_rate ${params.finetune_learning_rate} \
     --max_seq_length 128 \
-    --train_batch_size 32 \
+    --train_batch_size 32
+
+# Rename model checkpoints to model.ckpt-step<step>-*
+for f in model.ckpt*; do
+    newname=\$(echo "\$f" | sed 's/ckpt-\\([[:digit:]]\\+\\)/-step\\1/')
+    mv "\$f" "\$newname"
+done
     """
 }
 
@@ -169,8 +175,8 @@ python /opt/bert/run_classifier.py --task_name=$glue_task \
 process finetuneSquad {
     label "gpu_large"
     container params.bert_container
-    publishDir "${params.outdir}/bert/${run_id}"
-    tag "${run_id}"
+    publishDir "${params.outdir}/bert/${run_id_str}"
+    tag "${run_id_str}"
 
     input:
     file("train.json") from squad_train_ch
@@ -178,7 +184,7 @@ process finetuneSquad {
     each run from Channel.from(1..params.finetune_runs)
 
     output:
-    set val(run_id), file("model.ckpt-*") into model_ckpt_files_squad
+    set val(run_id), file("model.ckpt-step*") into model_ckpt_files_squad
 
 
     script:
@@ -196,6 +202,12 @@ python /opt/bert/run_squad.py \
     --doc_stride 128 \
     --learning_rate ${params.finetune_squad_learning_rate} \
     --version_2_with_negative=True
+
+# Rename model checkpoints to model.ckpt-step<step>-*
+for f in model.ckpt*; do
+    newname=\$(echo "\$f" | sed 's/ckpt-\\([[:digit:]]\\+\\)/-step\\1/')
+    mv "\$f" "\$newname"
+done
     """
 }
 
@@ -205,17 +217,7 @@ model_ckpt_files_squad.into { squad_for_eval; squad_for_extraction }
  * Run evaluation for the SQuAD fine-tuned models.
  */
 // Group SQuAD checkpoints based on their run-step.
-squad_for_eval.flatMap {
-    output ->
-        run_id = output[0]
-        files = output[1]
-        files.collect {
-            f ->
-                step_num = get_checkpoint_num(f)
-                step_id = run_id + [step_num]
-                tuple(step_id, f)
-        }
-}.groupTuple().set { squad_eval_ckpts }
+squad_eval_ckpts = flatten_checkpoint_channel(squad_for_eval)
 
 process evalSquad {
     label "gpu_medium"
@@ -224,8 +226,8 @@ process evalSquad {
     tag "${ckpt_id_str}"
 
     input:
-    set ckpt_id, file(ckpt_files), file("dev.json") \
-        from squad_eval_ckpts.combine(squad_dev_for_eval_ch)
+    set ckpt_id, file(ckpt_files) from squad_eval_ckpts
+    each file("dev.json") from squad_dev_for_eval_ch
 
     output:
     set ckpt_id, file("predictions.json"), file("null_odds.json"), file("results.json") into squad_eval_results
@@ -237,13 +239,13 @@ process evalSquad {
 #!/usr/bin/env bash
 
 # Output a dummy checkpoint metadata file.
-echo "model_checkpoint_path: \"model.ckpt-${ckpt_step}\"" > checkpoint
+echo "model_checkpoint_path: \"model.ckpt-step${ckpt_step}\"" > checkpoint
 
 # Run prediction.
 python /opt/bert/run_squad.py --do_predict \
     --vocab_file=\$BERT_MODEL/vocab.txt \
     --bert_config_file=\$BERT_MODEL/bert_config.json \
-    --init_checkpoint=model.ckpt-${ckpt_step} \
+    --init_checkpoint=model.ckpt-step${ckpt_step} \
     --predict_file=dev.json \
     --doc_stride 128 --version_2_with_negative=True \
     --predict_batch_size 32 \
@@ -299,10 +301,10 @@ process extractEncoding {
 for ckpt in ${all_ckpts_str}; do
     python /opt/bert/extract_features.py \
         --input_file=${sentences} \
-        --output_file=encodings-\$ckpt.jsonl \
+        --output_file=encodings-step\$ckpt.jsonl \
         --vocab_file=\$BERT_MODEL/vocab.txt \
         --bert_config_file=\$BERT_MODEL/bert_config.json \
-        --init_checkpoint=model.ckpt-\$ckpt \
+        --init_checkpoint=model.ckpt-step\$ckpt \
         --layers="${params.extract_encoding_layers}" \
         --max_seq_length=128 \
         --batch_size=64
@@ -395,8 +397,7 @@ process extractEncodingForStructuralProbe {
     tag "${run_id_str}"
 
     input:
-    set run_id, file(ckpt_files), file("train.txt"), file("dev.txt") \
-        from model_ckpts_for_sprobe
+    set run_id, file(ckpt_files) from model_ckpts_for_sprobe
     each file("train.txt") from sprobe_train_ch
     each file("dev.txt") from sprobe_dev_ch
 
@@ -417,10 +418,10 @@ for ckpt in ${all_ckpts_str}; do
     for split in train dev; do
         python /opt/bert/extract_features.py \
             --input_file=\$split.txt \
-            --output_file=encodings-\$ckpt-\$split.hdf5 \
+            --output_file=encodings-step\$ckpt-\$split.hdf5 \
             --vocab_file=\$BERT_MODEL/vocab.txt \
             --bert_config_file=\$BERT_MODEL/bert_config.json \
-            --init_checkpoint=model.ckpt-\$ckpt \
+            --init_checkpoint=model.ckpt-step\$ckpt \
             --layers="${sprobe_layers}" \
             --max_seq_length=96 \
             --batch_size=64 \
