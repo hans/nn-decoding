@@ -163,7 +163,7 @@ python /opt/bert/run_classifier.py --task_name=$glue_task \
 
 # Rename model checkpoints to model.ckpt-step<step>-*
 for f in model.ckpt*; do
-    newname=\$(echo "\$f" | sed 's/ckpt-\\([[:digit:]]\\+\\)/-step\\1/')
+    newname=\$(echo "\$f" | sed 's/ckpt-\\([[:digit:]]\\+\\)/ckpt-step\\1/')
     mv "\$f" "\$newname"
 done
     """
@@ -205,7 +205,7 @@ python /opt/bert/run_squad.py \
 
 # Rename model checkpoints to model.ckpt-step<step>-*
 for f in model.ckpt*; do
-    newname=\$(echo "\$f" | sed 's/ckpt-\\([[:digit:]]\\+\\)/-step\\1/')
+    newname=\$(echo "\$f" | sed 's/ckpt-\\([[:digit:]]\\+\\)/ckpt-step\\1/')
     mv "\$f" "\$newname"
 done
     """
@@ -234,6 +234,7 @@ process evalSquad {
 
     script:
     ckpt_id_str = ckpt_id.join("-")
+    ckpt_step = ckpt_id.last()
 
     """
 #!/usr/bin/env bash
@@ -402,8 +403,7 @@ process extractEncodingForStructuralProbe {
     each file("dev.txt") from sprobe_dev_ch
 
     output:
-    set run_id, file("encodings-*-train.hdf5"), file("encodings-*-dev.hdf5") \
-        into encodings_sprobe
+    set run_id, file("encodings-*.hdf5") into encodings_sprobe
 
     script:
     run_id_str = run_id.join("-")
