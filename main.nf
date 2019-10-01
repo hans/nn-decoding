@@ -440,7 +440,6 @@ encodings_sprobe_flat.map {
     el -> [el[0], el[1].groupBy { f -> (f.name =~ /-(\w+).hdf5/)[0][1] }]
 }.map {
     el ->
-        log.error(el.toString())
         [el[0], el[1].train, el[1].dev]
 }.set { encodings_sprobe_readable }
 
