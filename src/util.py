@@ -66,21 +66,20 @@ def load_brain_data(path, project=None):
   return subject_images
 
 
-def load_decoding_perfs(results_dir, glob_prefix=None):
+def load_decoding_perfs(results_dir):
     """
     Load and render a DataFrame describing decoding performance across models,
     model runs, and subjects.
 
     Args:
-        results_dir: path to directory containing CSV decoder results
+        results_dir: path to pipeline decoder output directory
     """
-    decoder_re = re.compile(r"(\w+)-run(\d+)-(\d+)-([\w\d]+)\.csv$")
 
     results = {}
     result_keys = ["model", "run", "step", "subject"]
-    for csv in tqdm(list(Path(results_dir).glob("%s*.csv" % (glob_prefix or ""))),
+    for csv in tqdm(list(Path(results_dir).glob("**/*.csv")),
                     desc="Loading perf files"):
-      model, run, step, subject = decoder_re.findall(csv.name)[0]
+      key = get_decoder_id(csv.parent.name)
       try:
         df = pd.read_csv(csv, usecols=["mse", "r2",
                                        "rank_median", "rank_mean",
@@ -88,7 +87,7 @@ def load_decoding_perfs(results_dir, glob_prefix=None):
       except ValueError:
         continue
         
-      results[model, int(run), int(step), subject] = df
+      results[key] = df
     
     if len(results) == 0:
         raise ValueError("No valid csv outputs found.")
@@ -117,6 +116,24 @@ def load_decoding_preds(results_dir, glob_prefix=None):
         raise ValueError("No valid npy pred files found.")
         
     return results
+  
+  
+def get_encoding_ckpt_id(encoding_dir):
+    """
+    Get information about a model encoding from its output directory name.
+    """
+    encoding_dir = encoding_dir.name if isinstance(encoding_dir, Path) else encoding_dir
+    model, run, step = re.findall(r"^([\w_]+)-(\d+)-(\d+)$", encoding_dir)[0]
+    return model, int(run), int(step)
+  
+  
+def get_decoder_id(decoder_dir):
+    """
+    Get information about a learned decoder from its output directory name.
+    """
+    decoder_dir = decoder_dir.name if isinstance(decoder_dir, Path) else decoder_dir
+    model, run, step, subject = re.findall("^([\w_]+)-(\d+)-(\d+)-([\w\d]+)$", decoder_dir)[0]
+    return model, int(run), int(step), subject
 
 
 def eval_ranks(Y_pred, idxs, encodings, encodings_normed=True):
@@ -194,7 +211,7 @@ def wilcoxon_rank_preds(models, correct_bonferroni=True, pairs=None):
     return results
 
 
-def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
+def load_bert_finetune_metadata(savedir, checkpoint_step=None):
     """
     Load metadata for an instance of a finetuned BERT model.
     """
@@ -205,9 +222,9 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
     try:
         ckpt = NewCheckpointReader(str(savedir / "model.ckpt"))
     except tf.errors.NotFoundError:
-        if checkpoint_steps is None:
+        if checkpoint_step is None:
             raise
-        ckpt = NewCheckpointReader(str(savedir / ("model.ckpt-%i" % checkpoint_steps[-1])))
+        ckpt = NewCheckpointReader(str(savedir / ("model.ckpt-step%i" % checkpoint_step)))
 
     ret = {}
     try:
@@ -243,7 +260,7 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
                         first_loss = v.simple_value
                     cur_loss = v.simple_value
 
-            if checkpoint_steps is None or e.step in checkpoint_steps:
+            if checkpoint_step is None or e.step == checkpoint_step:
                 ret["steps"][e.step].update({
                     "total_global_norms": total_global_norm,
                     "train_loss": cur_loss,
@@ -273,7 +290,7 @@ def load_bert_finetune_metadata(savedir, checkpoint_steps=None):
                 elif v.tag == "masked_lm_accuracy":
                     eval_accuracy = v.simple_value
 
-            if checkpoint_steps is None or e.step in checkpoint_steps:
+            if checkpoint_step is None or e.step == checkpoint_step:
                 ret["steps"][e.step].update({
                     "eval_accuracy": eval_accuracy,
                     "eval_loss": eval_loss,
