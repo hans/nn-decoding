@@ -146,6 +146,8 @@ process finetuneGlue {
 
     output:
     set run_id, file("model.ckpt-step*") into model_ckpt_files_glue
+    set run_id, file("eval_results.txt"), file("eval") into model_eval_glue
+    set run_id, file("events.out*") into model_events_glue
 
     script:
     run_id = [glue_task, run]
@@ -185,7 +187,7 @@ process finetuneSquad {
 
     output:
     set val(run_id), file("model.ckpt-step*") into model_ckpt_files_squad
-
+    set run_id, file("events.out*") into model_events_squad
 
     script:
     run_id = ["SQuAD", run]
