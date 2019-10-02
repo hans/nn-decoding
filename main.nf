@@ -273,7 +273,7 @@ process prepareBaselineCheckpoint {
     set run_id, file("model.ckpt-step*") into model_ckpt_files_baseline
 
     script:
-    run_id = ["baseline", 1, 0]
+    run_id = ["baseline", 1]
     run_id_str = run_id.join("-")
 
     '''
