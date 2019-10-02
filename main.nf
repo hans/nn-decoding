@@ -492,7 +492,7 @@ process runStructuralProbe {
     each layer from Channel.from(structural_probe_layers)
 
     output:
-    set ckpt_id, file("dev.uuas"), file("dev.spearmanr") into sprobe_results
+    set ckpt_id, file("dev.*") into sprobe_results
 
     script:
     ckpt_id_str = ckpt_id.join("-")
