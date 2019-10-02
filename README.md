@@ -66,11 +66,11 @@ The pipeline is otherwise fully automated, so all other dependencies
 
 ### Starting the pipeline
 
-Simply run the following command in a clean directory.
-(Downloading this repository is not necessary.)
+Check out the repository by downloading the [**`emnlp2019-final`**](https://github.com/hans/nn-decoding/tree/emnlp2019-final)
+tag and run the following command in the root directory:
 
 ```bash
-nextflow run hans/nn-decoding -r emnlp2019-final
+nextflow run main.nf
 ```
 
 ### Configuring the pipeline
@@ -93,8 +93,7 @@ we wanted to run the whole pipeline with BERT models trained for 500 steps
 rather than 250 steps, we could simply execute
 
 ```bash
-nextflow run hans/nn-decoding -r emnlp2019-final \
-  --finetune_steps 500
+nextflow run main.nf --finetune_steps 500
 ```
 
 ### Analysis and visualization
