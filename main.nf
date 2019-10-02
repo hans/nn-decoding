@@ -260,10 +260,36 @@ eval_squad.py dev.json \
     """
 }
 
+/**
+ * Prepare a dummy model checkpoint from the pretrained BERT model.
+ */
+process prepareBaselineCheckpoint {
+    label "small"
+    container params.bert_container
+    publishDir "${params.outdir}/bert/${run_id_str}"
+    tag "${run_id_str}"
 
-// Concatenate GLUE results with SQuAD results.
+    output:
+    set run_id, file("model.ckpt-step*") into model_ckpt_files_baseline
+
+    script:
+    run_id = ["baseline", 1, 0]
+    run_id_str = run_id.join("-")
+
+    '''
+#!/usr/bin/env bash
+
+for ckpt_file in $BERT_MODEL/bert_model.ckpt*; do
+    newname=$(basename "$ckpt_file" | sed 's/\\(.\\+\\).ckpt./model.ckpt-step0./')
+    cp "$ckpt_file" "$newname"
+done
+    '''
+}
+
+
+// Concatenate GLUE results with SQuAD and baseline results.
 // Each channel item is grouped by key `(<model>, <run>)`.
-model_ckpt_files_glue.concat(squad_for_extraction) \
+model_ckpt_files_glue.concat(squad_for_extraction).concat(model_ckpt_files_baseline) \
         .into { model_ckpts_for_decoder; model_ckpts_for_sprobe }
 
 /* // Group model checkpoints by keys `(<model>, <run>)`. */
