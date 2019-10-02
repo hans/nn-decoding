@@ -123,7 +123,11 @@ def get_encoding_ckpt_id(encoding_dir):
     Get information about a model encoding from its output directory name.
     """
     encoding_dir = encoding_dir.name if isinstance(encoding_dir, Path) else encoding_dir
-    model, run, step = re.findall(r"^([\w_]+)-(\d+)-(\d+)$", encoding_dir)[0]
+    try:
+      model, run, step = re.findall(r"^([\w_]+)-(\d+)-(\d+)$", encoding_dir)[0]
+    except IndexError:
+      raise ValueError("Failed to extract checkpoint information from encoding directory %s" % encoding_dir)
+      
     return model, int(run), int(step)
   
   
