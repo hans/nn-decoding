@@ -4,8 +4,8 @@
 
 This repository contains analysis code for the paper:
 
-[Linking human and artificial neural representations of language.][3]
-Jon Gauthier and Roger P. Levy.
+[**Linking human and artificial neural representations of language.**][3]<br/>
+Jon Gauthier and Roger P. Levy.<br/>
 [2019 Conference on Empirical Methods in Natural Language Processing][2].
 
 This repository is open-source under the MIT License. If you would like to
