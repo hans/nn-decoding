@@ -122,7 +122,7 @@ singularity run library://jon/default/tensorflow:1.12.0-cpu jupyter lab
 
 [1]: https://doi.org/10.1038/s41467-018-03068-4
 [2]: https://www.emnlp-ijcnlp2019.org
-[3]: TODO
+[3]: https://arxiv.org/abs/1910.01244
 [4]: https://www.nextflow.io
 [5]: https://sylabs.io/singularity/
 [6]: https://slurm.schedmd.com/overview.html
